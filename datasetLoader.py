@@ -1,10 +1,8 @@
-# This Python 3 environment comes with many helpful analytics libraries installed
-# It is defined by the kaggle/python Docker image: https://github.com/kaggle/docker-python
-# For example, here's several helpful packages to load
 
-import numpy as np # linear algebra
-import pandas as pd # data processing, CSV file I/O (e.g. pd.read_csv)
+import numpy as np
+import pandas as pd
 import cv2
+import torchvision.transforms
 from matplotlib import pyplot as plt
 import torch
 from torch import nn
@@ -16,11 +14,10 @@ import os
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 
-spacy_eng = spacy.load("en_core_web_sm")
+spacy_eng = spacy.load("en_core_web_sm") # load nlp model
 
 
 # For prepararing the vocabulary
-
 class Vocabulary:
     def __init__(self, freq_threshold):
         self.freq_threshold = freq_threshold
@@ -28,7 +25,7 @@ class Vocabulary:
         self.stoi = {v: k for k, v in self.itos.items()}
 
     def __len__(self):
-        return len(itos)
+        return len(self.itos)
 
     @staticmethod
     def tokenize(text):
@@ -59,6 +56,13 @@ class Vocabulary:
 # custom dataset class to get numericalized captions and images
 class FlickrDataset(Dataset):
     def __init__(self, root_dir, caps, transforms=None, freq_threshold=5, im_width=128):
+        '''
+        :param root_dir: directory for the images
+        :param caps: path to captions file
+        :param transforms: transforms we wish to preform on the images
+        :param freq_threshold: frequency threshold for the vocabulary
+        :param im_width: new image width we work with
+        '''
         self.root_dir = root_dir
         self.df = pd.read_csv(caps, delimiter='|')
         self.transforms = transforms
@@ -73,13 +77,13 @@ class FlickrDataset(Dataset):
         return len(self.df)
 
     def __getitem__(self, idx):
+        '''
+        :param idx: dataset item index
+        :return: image (torch.tensor) and captions (torch.tensor)
+        '''
         captions = self.caps[idx]
         img_pt = self.img_pts[idx]
         img = Image.open(os.path.join(self.root_dir, img_pt)).convert('RGB')
-        w,h = img.size
-        new_h = int(h / w * self.im_width)
-        newsize = (self.im_width, new_h)
-        img = img.resize(newsize)
         if self.transforms is not None:
             img = self.transforms(img)
 
@@ -124,7 +128,7 @@ if __name__ == "__main__":
 
     # Images normalized according to resnet 50 expectations (optional)
     transforms = T.Compose([
-        T.Resize((224, 224)),
+        T.Resize((128, 128)),
         T.ToTensor(),
         T.Normalize(mean=[0.485, 0.456, 0.406],
                     std=[0.229, 0.224, 0.225])
@@ -133,7 +137,7 @@ if __name__ == "__main__":
     batch_first = True
     pin_memory = True
     shuffle = True
-    dataset = FlickrDataset(root_folder, csv_file, transforms, im_width=128)
+    dataset = FlickrDataset(root_folder, csv_file, transforms)
     pad_idx = dataset.vocab.stoi["<PAD>"]
     # Data Loader
     dataloader = DataLoader(dataset,
