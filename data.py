@@ -113,8 +113,7 @@ def convert_to_imshow_format(image):
     image = image.transpose(1,2,0)
     image = (image - np.min(np.min(image, axis=0),axis=0))
     image = image / np.max(np.max(image,axis=0),axis=0)
-    # convert from CHW to HWC
-    # from 3x32x32 to 32x32x3
+    # We preform normalization on the image in order to be in range [0,1]
     return image
 def show_img(img, caption):
     img = convert_to_imshow_format(img)
