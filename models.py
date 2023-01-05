@@ -143,8 +143,14 @@ class TransformerDecoder(nn.Module):
 
 class EncoderDecoder(nn.Module):
     def __init__(self, encoder_out, embedding_size, hidden_size, vocab_size,
-                 num_layers=1, max_seq_length=200):
+                 num_layers=1, max_seq_length=50):
         super(EncoderDecoder, self).__init__()
+        self.encoder_out = encoder_out
+        self.embedding_size = embedding_size
+        self.hidden_size = hidden_size
+        self.vocab_size = vocab_size
+        self.num_layers = num_layers
+        self.max_seq_length = max_seq_length
         self.encoder = CNNEncoder()
         self.decoder = LSTMDecoder(encoder_out, embedding_size, hidden_size, vocab_size, num_layers, max_seq_length)
 
@@ -156,6 +162,34 @@ class EncoderDecoder(nn.Module):
     def init_weights(self):
         self.decoder.init_weights()
 
-    def Predict(self, image, caption):
-        output = self.forward(image, caption)
-        return np.max(output, axis=1)
+    def generate_caption(self, image, vocab):
+        '''
+        Create caption for image
+        :param image: the image we want to create the caption of
+        :param vocab: the vocabulary according to which we caption
+        :return: the caption as a string
+        '''
+        result = []
+        batch_size = len(image)
+        with torch.no_grad():
+            x = self.encoder(image)
+            x = self.decoder.embed_feature(x)
+            c = None
+
+            for i in range(self.max_seq_length):
+                h, c = self.decoder.lstm(x, c)
+                output = self.decoder.linear(h)
+                prediction = output.argmax(dim=1)
+                if len(result) != 0:
+                    result = torch.vstack((result, prediction))
+                else:
+                    result = prediction
+                    ''' 
+                    if vocab.itos[prediction.tolist()] == "<EOS>":
+                        break
+                    '''
+                x = self.decoder.word_embeddings(prediction)
+        predictions = []
+        for i in range(batch_size):
+            predictions.append([vocab.itos[idx] for idx in result[:, i].tolist()])
+        return predictions

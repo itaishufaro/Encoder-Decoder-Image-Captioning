@@ -23,8 +23,9 @@ import spacy
 import os
 import models
 from models import EncoderDecoder
+from nltk.translate.bleu_score import sentence_bleu
 
-def train(model, dataloader, optimizer, criterion, device):
+def train(model, dataloader, optimizer, criterion, device, vocab):
     '''
     Training function for our model. Each training loop corresponds to one epoch
 
@@ -47,9 +48,41 @@ def train(model, dataloader, optimizer, criterion, device):
         loss.backward()
         optimizer.step()
         if i % 100 == 0:
+            eval_score = evaluate(model, dataloader, vocab)
             print("For iteration " + str(i) + " the loss is : " + str(loss.item()))
+            print("For iteration " + str(i) + " the belu is : " + str(eval_score))
         i = i + 1
     return loss.item()
+
+
+def batch_belu(captions_list, predictions_list):
+    j = len(captions_list)
+    tmp = 0
+    for i in range(j):
+        tmp = tmp + sentence_bleu(captions_list[i], predictions_list[i])
+    return tmp/j
+
+
+def evaluate(model, val_dataset, vocab):
+    '''
+
+    :param model: The model we use for image captioning
+    :param val_dataset: The images we wish to predict the caption
+    :param vocab: The vocabulary we use
+    :return: The mean belu score
+    '''
+    model.eval()
+    belu_score = 0
+    dataset_size = len(val_dataset)
+    for images, captions in iter(val_dataset):
+        batch_size = len(images)
+        images, captions = images.to(device), captions.to(device)
+        predicted_captions = model.generate_caption(images, vocab)
+        captions_list = []
+        for i in range(batch_size):
+            captions_list.append([vocab.itos[idx] for idx in captions[i, :].tolist()])
+        belu_score = belu_score + sentence_bleu(captions_list, predicted_captions)
+    return belu_score/dataset_size
 
 
 if __name__ == '__main__':
@@ -79,7 +112,7 @@ if __name__ == '__main__':
     '''
     Hyperparameters
     '''
-    batch_size = 32
+    batch_size = 128
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(device)
     num_workers = 2
@@ -87,14 +120,16 @@ if __name__ == '__main__':
     pin_memory = True
     shuffle = True
     pad_idx = dataset.vocab.stoi["<PAD>"]
-    dataloader = DataLoader(dataset,
+    dataset_size = len(dataset)
+    trainloader = DataLoader(dataset,
                             batch_size=batch_size,
                             pin_memory=pin_memory,
                             num_workers=num_workers,
                             shuffle=shuffle,
                             collate_fn=data.CapCollat(pad_seq=pad_idx, batch_first=batch_first))
-    optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     criterion = nn.CrossEntropyLoss(ignore_index=pad_idx).to(device)
     model.to(device)
-    lossval = train(model, dataloader, optimizer, criterion, device)
-    print("Final Loss is : " + str(lossval))
+    num_epochs = 2
+    for i in range(num_epochs):
+        trainloss = train(model, trainloader, optimizer, criterion, device, vocabulary)
