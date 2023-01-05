@@ -9,6 +9,7 @@ import torchvision
 import data
 from data import FlickrDataset
 import math
+import numpy as np
 
 
 class CNNEncoder(nn.Module):
@@ -20,15 +21,68 @@ class CNNEncoder(nn.Module):
         for fine-tuning.
         '''
         super(CNNEncoder, self).__init__()
-        vgg = models.vgg19(pretrained=True)  # we use VGG19 as our encoder
-        # We also freeze the weights
-        vgg.requires_grad_ = False
-        self.vgg = vgg  # extract only features layer
+        resnet = models.resnet50(pretrained=True)  # we use VGG19 as our encoder
+        self.conv_layers = nn.Sequential(*list(resnet.children())[:-2])
+        self.conv_layers.requires_grad_(False)
 
     def forward(self, x):
-        x = self.vgg.features(x)
+        x = self.conv_layers(x)
         x = x.view(x.shape[0], -1)  # Flatten the input at the end to get features vector
         return x
+
+
+class LSTMDecoder(nn.Module):
+    def __init__(self, encoder_out, embedding_size, hidden_size, vocab_size, num_layers=1, max_seq_length=200):
+        '''
+
+        :param encoder_out: size of output encoder
+        :param embedding_size: size of the vocab embedding
+        :param hidden_size: hidden size used for the input features
+        :param vocab_size: size of the vocabulary
+        :param num_layers: number of layers in the LSTM layer
+        :param max_seq_length: maximum possible sequence length
+        '''
+        super(LSTMDecoder, self).__init__()
+        self.encoder_out = encoder_out
+        self.embedding_size = embedding_size
+        self.hidden_size = hidden_size
+        self.vocab_size = vocab_size
+        self.num_layers = num_layers
+        self.max_seq_length = max_seq_length
+
+        # Embedding layer to map input words to word embeddings
+        self.word_embeddings = nn.Embedding(vocab_size, embedding_size)
+
+        # LSTM layers
+        self.lstm = nn.LSTM(embedding_size, hidden_size, num_layers, batch_first=True)
+
+        # Linear layer to map the hidden state of the LSTM to the output vocabulary
+        self.linear = nn.Linear(hidden_size, vocab_size)
+
+        # Linear layer to map the features to the embedded size
+        self.embed_feature = nn.Linear(self.encoder_out, embedding_size)
+
+    def init_weights(self):
+        # We initialize all the weights of the lstm layer using xavier_uniform
+        nn.init.xavier_uniform_(self.lstm.weight_ih_l0)
+        nn.init.xavier_uniform_(self.lstm.weight_hh_l0)
+        nn.init.xavier_uniform_(self.linear.weight)
+        nn.init.xavier_uniform_(self.embed_feature.weight)
+
+    def forward(self, features, captions):
+        # Convert input captions to word embeddings
+        # embeddings = self.word_embeddings(captions)
+
+        # Concatenate features and word embeddings and pass them through the LSTM
+        features_embed = self.embed_feature(features)
+        embed = self.word_embeddings(captions)
+        lstm_input = torch.cat((features_embed.unsqueeze(1), embed), 1)
+        lstm_output, _ = self.lstm(lstm_input)
+
+        # Use the linear layer to map the LSTM output to the output vocabulary
+        outputs = self.linear(lstm_output)
+
+        return outputs
 
 
 class PositionalEncoding(nn.Module):
@@ -74,6 +128,7 @@ class TransformerDecoder(nn.Module):
         self.positional_encoding = PositionalEncoding(hidden_dim, dropout)
         self.transformer_decoder = nn.TransformerDecoder(
             nn.TransformerDecoderLayer(hidden_dim, num_heads, hidden_dim * 4, dropout),
+            norm_first=True,
             num_layers=num_layers
         )
         self.linear = nn.Linear(in_features=hidden_dim, out_features=output_dim)
@@ -86,41 +141,21 @@ class TransformerDecoder(nn.Module):
         return x
 
 
-if __name__ == '__main__':
-    model = CNNEncoder()
-    batch_size = 1
-    root_folder = "./flickr30k/images"
-    csv_file = "./flickr30k/results.csv"
-    # Check if a GPU is available
-    if torch.cuda.is_available():
-        device = torch.device("cuda")  # use GPU
-    else:
-        device = torch.device("cpu")  # use CPU
-    model.to(device)
-    # Images normalized according to VGG19 expectations (optional)
-    transforms = T.Compose([
-        T.Resize((224, 224)),
-        T.ToTensor(),
-        T.Normalize(mean=[0.485, 0.456, 0.406],
-                    std=[0.229, 0.224, 0.225])
-    ])
-    num_workers = 2
-    batch_first = True
-    pin_memory = True
-    shuffle = True
-    dataset = FlickrDataset(root_folder, csv_file, transforms)
-    pad_idx = dataset.vocab.stoi["<PAD>"]
-    # Data Loader
-    dataloader = DataLoader(dataset,
-                            batch_size=batch_size,
-                            pin_memory=pin_memory,
-                            num_workers=num_workers,
-                            shuffle=shuffle,
-                            collate_fn=data.CapCollat(pad_seq=pad_idx, batch_first=batch_first))
-    dataitr = iter(dataloader)
-    batch = next(dataitr)
-    images, captions = batch
-    img_features = model(images.to(device))
-    vocabsize = len(dataset.vocab.itos)
+class EncoderDecoder(nn.Module):
+    def __init__(self, encoder_out, embedding_size, hidden_size, vocab_size,
+                 num_layers=1, max_seq_length=200):
+        super(EncoderDecoder, self).__init__()
+        self.encoder = CNNEncoder()
+        self.decoder = LSTMDecoder(encoder_out, embedding_size, hidden_size, vocab_size, num_layers, max_seq_length)
 
+    def forward(self, image, caption):
+        features = self.encoder(image)
+        output = self.decoder(features, caption)
+        return output
 
+    def init_weights(self):
+        self.decoder.init_weights()
+
+    def Predict(self, image, caption):
+        output = self.forward(image, caption)
+        return np.max(output, axis=1)

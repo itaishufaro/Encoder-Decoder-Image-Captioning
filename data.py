@@ -1,4 +1,4 @@
-
+import json
 import numpy as np
 import pandas as pd
 import cv2
@@ -13,8 +13,9 @@ import spacy
 import os
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
+# import models
 
-spacy_eng = spacy.load("en_core_web_sm") # load nlp model
+spacy_eng = spacy.load("en_core_web_sm")  # load nlp model
 
 
 # For prepararing the vocabulary
@@ -108,6 +109,8 @@ class CapCollat:
         target_caps = pad_sequence(target_caps, batch_first=self.batch_first,
                                    padding_value=self.pad_seq)
         return imgs, target_caps
+
+
 def convert_to_imshow_format(image):
     image = image.numpy()
     image = image.transpose(1,2,0)
@@ -115,13 +118,17 @@ def convert_to_imshow_format(image):
     image = image / np.max(np.max(image,axis=0),axis=0)
     # We preform normalization on the image in order to be in range [0,1]
     return image
+
+
 def show_img(img, caption):
     img = convert_to_imshow_format(img)
     plt.imshow(img)
     plt.title(caption)
     plt.show()
+
+'''
 if __name__ == "__main__":
-    batch_size = 3
+    batch_size = 1
     root_folder = "./flickr30k/images"
     csv_file = "./flickr30k/results.csv"
 
@@ -150,11 +157,22 @@ if __name__ == "__main__":
     images, captions = batch
     print(captions.shape)
     print(captions[0])
-    for i in range(batch_size):
-        img, cap = images[i], captions[i]
-        caption_label = [dataset.vocab.itos[token] for token in cap.tolist()]
-        eos_index = caption_label.index('<EOS>')
-        caption_label = caption_label[1:eos_index]
-        caption_label = ' '.join(caption_label)
-        show_img(img, caption_label)
-        plt.show()
+    # print(dataset.vocab.itos[token] for token in captions[0].tolist())
+    caption_label = [dataset.vocab.itos[token] for token in captions[0].tolist()]
+    eos_index = caption_label.index('<EOS>')
+    caption_label = caption_label[1:eos_index]
+    caption_label = ' '.join(caption_label)
+    print(caption_label)
+    embedding_size = 256
+    hidden_size = 256
+    vocab_size = len(dataset.vocab)
+    encoder_out = 32768
+    encodedecode = models.EncoderDecoder(encoder_out, embedding_size, hidden_size, vocab_size)
+    new_word = encodedecode(images, captions)
+    print(new_word.size())
+    caption_label = [dataset.vocab.itos[token] for token in new_word.tolist()]
+    eos_index = caption_label.index('<EOS>')
+    caption_label = caption_label[1:eos_index]
+    caption_label = ' '.join(caption_label)
+    print(caption_label)
+'''
