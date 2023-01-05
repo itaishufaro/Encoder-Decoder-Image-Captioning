@@ -30,7 +30,7 @@ class Vocabulary:
 
     @staticmethod
     def tokenize(text):
-        return [token.text.lower() for token in spacy_eng.tokenizer(text)]
+        return [token.text.lower() for token in spacy_eng.tokenizer(str(text))]
 
     def build_vocab(self, sent_list):
         freqs = {}

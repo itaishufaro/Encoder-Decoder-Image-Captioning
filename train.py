@@ -48,9 +48,9 @@ def train(model, dataloader, optimizer, criterion, device, vocab):
         loss.backward()
         optimizer.step()
         if i % 100 == 0:
-            eval_score = evaluate(model, dataloader, vocab)
+            # eval_score = evaluate(model, dataloader, vocab)
             print("For iteration " + str(i) + " the loss is : " + str(loss.item()))
-            print("For iteration " + str(i) + " the belu is : " + str(eval_score))
+            # print("For iteration " + str(i) + " the belu is : " + str(eval_score))
         i = i + 1
     return loss.item()
 
@@ -130,6 +130,25 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     criterion = nn.CrossEntropyLoss(ignore_index=pad_idx).to(device)
     model.to(device)
-    num_epochs = 2
+    num_epochs = 3
     for i in range(num_epochs):
         trainloss = train(model, trainloader, optimizer, criterion, device, vocabulary)
+    torch.save(model.state_dict(), 'LSTMdecoder.pt')
+    singleimageloader = DataLoader(dataset,
+                            batch_size=1,
+                            pin_memory=pin_memory,
+                            num_workers=num_workers,
+                            shuffle=shuffle,
+                            collate_fn=data.CapCollat(pad_seq=pad_idx, batch_first=batch_first))
+    itr = iter(singleimageloader)
+    image, caption = next(itr)
+    caption_label = [dataset.vocab.itos[token] for token in caption.tolist()]
+    eos_index = caption_label.index('<EOS>')
+    caption_label = caption_label[1:eos_index]
+    caption_label = ' '.join(caption_label)
+    print("True Caption Is: " + caption_label)
+    predicted_caption = model.generate_caption(image, vocabulary)
+    eos_index = predicted_caption.index('<EOS>')
+    caption_label = predicted_caption[1:eos_index]
+    caption_label = ' '.join(caption_label)
+    print("Generated Caption Is: " + caption_label)
