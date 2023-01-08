@@ -53,10 +53,34 @@ class Vocabulary:
         return [self.stoi[token] if token in self.stoi else self.stoi["<UNK>"]
                 for token in tokens]
 
+    def sequence_to_text(self, seq):
+        """
+
+        :param seq: Input sequence as tensor (one sentence) 1 x NUM_WORDS
+        :return: Input sequence as text (list) NUM_WORDS
+        """
+        tmp = seq.squeeze()
+        tmp_list = [self.itos[i.item()] for i in tmp]
+        SOSind = tmp_list.index("<SOS>")
+        EOSind = tmp_list.index("<EOS>")
+        return ' '.join(tmp_list[SOSind+5:EOSind])
+
+    def sequences_to_texts(self, seqs):
+        """
+
+        :param seqs: Input sequences as tensor NUM_SENTENCES x NUM_WORDS
+        :return: Appropriate texts as list of lists
+        """
+
+        tmp = seqs.squeeze()
+        tmp_list = []
+        for i in tmp:
+            tmp_list.append(self.sequence_to_text(i))
+        return tmp_list
 
 # custom dataset class to get numericalized captions and images
 class FlickrDataset(Dataset):
-    def __init__(self, root_dir, caps, transforms=None, freq_threshold=5, im_width=128):
+    def __init__(self, root_dir, caps, transforms=None, freq_threshold=1, im_width=128):
         '''
         :param root_dir: directory for the images
         :param caps: path to captions file

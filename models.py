@@ -21,7 +21,7 @@ class CNNEncoder(nn.Module):
         for fine-tuning.
         '''
         super(CNNEncoder, self).__init__()
-        resnet = models.resnet50(pretrained=True)  # we use VGG19 as our encoder
+        resnet = models.resnet50(weights=[models.ResNet50_Weights])  # we use VGG19 as our encoder
         self.conv_layers = nn.Sequential(*list(resnet.children())[:-2])
         self.conv_layers.requires_grad_(False)
 
@@ -52,22 +52,27 @@ class LSTMDecoder(nn.Module):
 
         # Embedding layer to map input words to word embeddings
         self.word_embeddings = nn.Embedding(vocab_size, embedding_size)
+        self.word_embeddings.requires_grad_(True)
 
         # LSTM layers
         self.lstm = nn.LSTM(embedding_size, hidden_size, num_layers, batch_first=True)
+        self.lstm.requires_grad_(True)
 
         # Linear layer to map the hidden state of the LSTM to the output vocabulary
         self.linear = nn.Linear(hidden_size, vocab_size)
+        self.linear.requires_grad_(True)
 
         # Linear layer to map the features to the embedded size
         self.embed_feature = nn.Linear(self.encoder_out, embedding_size)
+        self.embed_feature.requires_grad_(True)
 
     def init_weights(self):
         # We initialize all the weights of the lstm layer using xavier_uniform
-        nn.init.xavier_uniform_(self.lstm.weight_ih_l0)
-        nn.init.xavier_uniform_(self.lstm.weight_hh_l0)
-        nn.init.xavier_uniform_(self.linear.weight)
-        nn.init.xavier_uniform_(self.embed_feature.weight)
+        nn.init.kaiming_normal_(self.word_embeddings.weight)
+        nn.init.kaiming_normal_(self.lstm.weight_ih_l0)
+        nn.init.kaiming_normal_(self.lstm.weight_hh_l0)
+        nn.init.kaiming_normal_(self.linear.weight)
+        nn.init.kaiming_normal_(self.embed_feature.weight)
 
     def forward(self, features, captions):
         # Convert input captions to word embeddings
