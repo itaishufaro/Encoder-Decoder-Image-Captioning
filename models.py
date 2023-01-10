@@ -32,10 +32,11 @@ class CNNEncoder(nn.Module):
 
 
 class LSTMDecoder(nn.Module):
-    def __init__(self, encoder_out, embedding_size, hidden_size, vocab_size, num_layers=1, max_seq_length=200):
+    def __init__(self, encoder_dim, embedding_size, hidden_size, vocab_size, device, max_seq_length=200,
+                 dropout=0.1):
         '''
 
-        :param encoder_out: size of output encoder
+        :param encoder_dim: size of output encoder
         :param embedding_size: size of the vocab embedding
         :param hidden_size: hidden size used for the input features
         :param vocab_size: size of the vocabulary
@@ -43,51 +44,59 @@ class LSTMDecoder(nn.Module):
         :param max_seq_length: maximum possible sequence length
         '''
         super(LSTMDecoder, self).__init__()
-        self.encoder_out = encoder_out
+        self.encoder_dim = encoder_dim
         self.embedding_size = embedding_size
         self.hidden_size = hidden_size
         self.vocab_size = vocab_size
-        self.num_layers = num_layers
+        self.device = device
         self.max_seq_length = max_seq_length
 
         # Embedding layer to map input words to word embeddings
-        self.word_embeddings = nn.Embedding(vocab_size, embedding_size)
-        self.word_embeddings.requires_grad_(True)
-
-        # LSTM layers
-        self.lstm = nn.LSTM(embedding_size, hidden_size, num_layers, batch_first=True)
-        self.lstm.requires_grad_(True)
-
-        # Linear layer to map the hidden state of the LSTM to the output vocabulary
-        self.linear = nn.Linear(hidden_size, vocab_size)
-        self.linear.requires_grad_(True)
-
-        # Linear layer to map the features to the embedded size
-        self.embed_feature = nn.Linear(self.encoder_out, embedding_size)
-        self.embed_feature.requires_grad_(True)
+        self.embedding = nn.Embedding(vocab_size, embedding_size)
+        self.dropout = nn.Dropout(p=dropout)
+        self.lstm = nn.LSTMCell(embedding_size, hidden_size)
+        self.init_h = nn.Linear(encoder_dim, hidden_size)
+        self.init_c = nn.Linear(encoder_dim, hidden_size)
+        self.fc = nn.Linear(hidden_size, vocab_size)
+        self.emb_features = nn.Linear(encoder_dim, embedding_size)
+        self.init_weights()
 
     def init_weights(self):
-        # We initialize all the weights of the lstm layer using xavier_uniform
-        nn.init.kaiming_normal_(self.word_embeddings.weight)
-        nn.init.kaiming_normal_(self.lstm.weight_ih_l0)
-        nn.init.kaiming_normal_(self.lstm.weight_hh_l0)
-        nn.init.kaiming_normal_(self.linear.weight)
-        nn.init.kaiming_normal_(self.embed_feature.weight)
+        # We initialize all the weights
+        self.embedding.weight.data.uniform_(-0.1, 0.1)
+        self.fc.bias.data.fill_(0)
+        self.fc.weight.data.uniform_(-0.1, 0.1)
+        self.init_h.weight.data.uniform_(-0.1, 0.1)
+        self.init_c.weight.data.uniform_(-0.1, 0.1)
+
+    def init_h_c(self, encoder_out):
+        h = self.init_h(encoder_out)  # (batch_size, decoder_dim)
+        c = self.init_c(encoder_out)
+        return h, c
 
     def forward(self, features, captions):
-        # Convert input captions to word embeddings
-        # embeddings = self.word_embeddings(captions)
+        batch_size = features.size(0)
+        vocab_size = self.vocab_size
 
-        # Concatenate features and word embeddings and pass them through the LSTM
-        features_embed = self.embed_feature(features)
-        embed = self.word_embeddings(captions)
-        lstm_input = torch.cat((features_embed.unsqueeze(1), embed), 1)
-        lstm_output, _ = self.lstm(lstm_input)
+        emb_features = self.emb_features(features)
+        embeddings = self.embedding(captions)  # (batch_size, max_caption_length, embed_dim)
 
-        # Use the linear layer to map the LSTM output to the output vocabulary
-        outputs = self.linear(lstm_output)
+        h, c = self.init_h_c(features)  # (batch_size, decoder_dim)
 
-        return outputs
+        decode_length = captions.size(1)
+
+        predictions = torch.zeros(batch_size, decode_length+1, vocab_size).to(self.device)
+
+        # first pass the image through
+        h, c = self.lstm(emb_features, (h, c))
+        predictions[:, 0, :] = self.fc(self.dropout(h))
+        # then the sentence w/o the first word
+        for t in range(decode_length):
+            h, c = self.lstm(embeddings[:, t, :], (h, c))  # (batch_size_t, hidden)
+            preds = self.fc(self.dropout(h))  # (batch_size_t, vocab_size)
+            predictions[:, t + 1, :] = preds
+
+        return predictions
 
 
 class PositionalEncoding(nn.Module):
@@ -147,7 +156,7 @@ class TransformerDecoder(nn.Module):
 
 
 class EncoderDecoder(nn.Module):
-    def __init__(self, encoder_out, embedding_size, hidden_size, vocab_size,
+    def __init__(self, encoder_out, embedding_size, hidden_size, vocab_size, device,
                  num_layers=1, max_seq_length=50):
         super(EncoderDecoder, self).__init__()
         self.encoder_out = encoder_out
@@ -157,8 +166,7 @@ class EncoderDecoder(nn.Module):
         self.num_layers = num_layers
         self.max_seq_length = max_seq_length
         self.encoder = CNNEncoder()
-        self.decoder = LSTMDecoder(encoder_out, embedding_size, hidden_size, vocab_size, num_layers, max_seq_length)
-
+        self.decoder = LSTMDecoder(encoder_out, embedding_size, hidden_size, vocab_size, device, max_seq_length=max_seq_length)
     def forward(self, image, caption):
         features = self.encoder(image)
         output = self.decoder(features, caption)
@@ -177,13 +185,13 @@ class EncoderDecoder(nn.Module):
         result = []
         batch_size = len(image)
         with torch.no_grad():
-            x = self.encoder(image)
-            x = self.decoder.embed_feature(x)
-            c = None
+            features = self.encoder(image)
+            h, c = self.decoder.init_h_c(features)
+            x = self.decoder.emb_features(features)
 
             for i in range(self.max_seq_length):
-                h, c = self.decoder.lstm(x, c)
-                output = self.decoder.linear(h)
+                h, c = self.decoder.lstm(x, (h, c))
+                output = self.decoder.fc(h)
                 prediction = output.argmax(dim=1)
                 if len(result) != 0:
                     result = torch.vstack((result, prediction))
@@ -193,7 +201,7 @@ class EncoderDecoder(nn.Module):
                     if vocab.itos[prediction.tolist()] == "<EOS>":
                         break
                     '''
-                x = self.decoder.word_embeddings(prediction)
+                x = self.decoder.embedding(prediction)
         predictions = []
         for i in range(batch_size):
             predictions.append([vocab.itos[idx] for idx in result[:, i].tolist()])
