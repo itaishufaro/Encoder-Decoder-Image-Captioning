@@ -38,10 +38,12 @@ def train(model, dataloader, optimizer, criterion, device, vocab):
     tot_loss = 0
     for images, captions in iter(dataloader):
         images, captions = images.to(device), captions.to(device)
+        captions = captions.transpose(0, 1)
         optimizer.zero_grad()
         output = model(images, captions[:, :-1])
         loss = criterion(output.reshape(-1, output.shape[2]), captions.reshape(-1))
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.1)
         optimizer.step()
         tot_loss = tot_loss + loss.item()
         if i % 100 == 0:
@@ -107,15 +109,15 @@ if __name__ == '__main__':
     Next we define our model and hyper-parameters
     '''
     encoder_out = 8192
-    model = EncoderDecoder(encoder_out, embedding_size, hidden_size, vocab_size)
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    model = EncoderDecoder(encoder_out, embedding_size, hidden_size, vocab_size, device=device)
     model.init_weights()
     '''
     Hyperparameters
     '''
-    batch_size = 256
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    batch_size = 128
     print(device)
-    num_workers = 4
+    num_workers = 2
     batch_first = True
     pin_memory = True
     shuffle = True
@@ -126,14 +128,14 @@ if __name__ == '__main__':
                             pin_memory=pin_memory,
                             num_workers=num_workers,
                             shuffle=shuffle,
-                            collate_fn=data.CapCollat(pad_seq=pad_idx, batch_first=True))
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+                            collate_fn=data.CapCollat(pad_idx=pad_idx))
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, factor=0.1, patience=10, verbose=True
     )
     criterion = nn.CrossEntropyLoss(ignore_index=pad_idx).to(device)
     model.to(device)
-    num_epochs = 1
+    num_epochs = 2
     for i in range(num_epochs):
         trainloss = train(model, trainloader, optimizer, criterion, device, vocabulary)
     model.eval()

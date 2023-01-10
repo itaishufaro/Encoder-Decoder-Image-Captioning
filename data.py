@@ -121,18 +121,16 @@ class FlickrDataset(Dataset):
 
 # Padding the captions according to the largest caption in the batch
 class CapCollat:
-    def __init__(self, pad_seq, batch_first=False):
-        self.pad_seq = pad_seq
-        self.batch_first = batch_first
+    def __init__(self, pad_idx):
+        self.pad_idx = pad_idx
 
     def __call__(self, batch):
-        imgs = [itm[0].unsqueeze(0) for itm in batch]
+        imgs = [item[0].unsqueeze(0) for item in batch]
         imgs = torch.cat(imgs, dim=0)
+        targets = [item[1] for item in batch]
+        targets = pad_sequence(targets, batch_first=False, padding_value=self.pad_idx)
 
-        target_caps = [itm[1] for itm in batch]
-        target_caps = pad_sequence(target_caps, batch_first=self.batch_first,
-                                   padding_value=self.pad_seq)
-        return imgs, target_caps
+        return imgs, targets
 
 
 def convert_to_imshow_format(image):
