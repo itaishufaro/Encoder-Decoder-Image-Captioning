@@ -15,18 +15,20 @@ import numpy as np
 class CNNEncoder(nn.Module):
     def __init__(self):
         '''
-        Encoder for images of sizes 224x224 using VGG19
+        Encoder for images of using resnet50
         architecture without the FC layers at the end.
         We use the pretrained weights without allowing
         for fine-tuning.
         '''
         super(CNNEncoder, self).__init__()
-        resnet = models.resnet50(weights=[models.ResNet50_Weights])  # we use VGG19 as our encoder
+        resnet = models.resnet50(weights=[models.ResNet50_Weights])  # we use resnet50 as our encoder
         self.conv_layers = nn.Sequential(*list(resnet.children())[:-2])
+        self.avg_pool = nn.AvgPool2d(2)
         self.conv_layers.requires_grad_(False)
 
     def forward(self, x):
         x = self.conv_layers(x)
+        x = self.avg_pool(x)
         x = x.view(x.shape[0], -1)  # Flatten the input at the end to get features vector
         return x
 
@@ -100,59 +102,73 @@ class LSTMDecoder(nn.Module):
 
 
 class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, dropout=0.1, max_len=100):
-        '''
-        :param d_model: dimension
-        :param dropout: dropout probability
-        :param max_len: maximal word length
-        '''
+    def __init__(self, num_hiddens, dropout, max_len=1000):
         super(PositionalEncoding, self).__init__()
-        self.dropout = nn.Dropout(p=dropout)
-        pe = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0).transpose(0, 1)
-        self.register_buffer('pe', pe)
+        self.dropout = nn.Dropout(dropout)
+        # Create a long enough `P`
+        self.P = torch.zeros((1, max_len, num_hiddens))
+        x = torch.arange(0, max_len, dtype=torch.float32).reshape(-1, 1)
+        x = x / torch.pow(10_000, torch.arange(0, num_hiddens, 2, dtype=torch.float32) / num_hiddens)
+        self.P[:, :, 0::2] = torch.sin(x)
+        self.P[:, :, 1::2] = torch.cos(x)
 
     def forward(self, x):
-        x = x + self.pe[:x.size(0), :]
-        return self.dropout(x)
+        tmp = x + self.P[:, :x.shape[1], :].to(x.device)
+        return self.dropout(tmp)
 
 
-class TransformerDecoder(nn.Module):
-    def __init__(self, encoder_out_dim, output_dim, num_layers, num_heads,
-                 hidden_dim, dropout=0.1):
+class TranDecoder(nn.Module):
+    def __init__(self, encoder_out_dim, embedding_size, vocab_size, num_hiddens,
+                 num_layers, num_heads=2, dropout=0.1):
         '''
         :param encoder_out_dim: Output dimension of encoder
         :param output_dim: Output dimension of decoder (vocab size)
         :param num_layers: Number of transformer layers
+        :param vocab_size: Vocabulary size
         :param num_heads: Number of heads in MHA
         :param hidden_dim: Hidden dimension used for embedding of the features
                             given by the decoder
         :param dropout: dropout probability for features
         '''
-        super(TransformerDecoder, self).__init__()
-        self.hidden_dim = hidden_dim
-        self.output_dim = output_dim
+        super(TranDecoder, self).__init__()
+        # self.hidden_dim = hidden_dim
         self.num_layers = num_layers
         self.num_heads = num_heads
-        self.embedding = nn.Linear(in_features=encoder_out_dim, out_features=hidden_dim)
-        self.positional_encoding = PositionalEncoding(hidden_dim, dropout)
-        self.transformer_decoder = nn.TransformerDecoder(
-            nn.TransformerDecoderLayer(hidden_dim, num_heads, hidden_dim * 4, dropout),
-            norm_first=True,
-            num_layers=num_layers
-        )
-        self.linear = nn.Linear(in_features=hidden_dim, out_features=output_dim)
+        self.dropout = dropout
+        self.encoder_out_dim = encoder_out_dim
+        self.embedding_size = embedding_size
+        self.word_embedding = nn.Embedding(vocab_size, embedding_size)
+        self.positional_embedding = PositionalEncoding(num_hiddens, dropout)
+        self.TransformerLayer = nn.TransformerDecoderLayer(embedding_size, num_heads, dropout=dropout,
+                                                      activation="gelu", batch_first=True)
+        self.Transformer = nn.TransformerDecoder(self.TransformerLayer, self.num_layers)
+        self.fc = nn.Linear(embedding_size, vocab_size)
+        self.feature_linear = nn.Linear(encoder_out_dim, embedding_size)
 
-    def forward(self, inputs, mask, src_mask):
-        x = self.embedding(inputs)
-        x = self.positional_encoding(x)
-        x = self.transformer_decoder(x, src_mask, mask)
-        x = self.linear(x)
-        return x
+        self.init_weights()
+
+    def init_weights(self):
+        nn.init.xavier_uniform_(self.fc.weight)
+        nn.init.xavier_uniform_(self.feature_linear.weight)
+        for p in self.Transformer.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
+
+    def forward(self, features, captions):
+        """
+
+        :param features: Input features
+        :param captions: Input target captions
+        :return: Transofrmer sequential output
+        """
+        emb_features = self.feature_linear(features)
+        embed = self.word_embedding(captions)
+        positional_embed = self.positional_embedding(embed)
+        out = self.Transformer(tgt=positional_embed, memory=emb_features.unsqueeze(1))
+        out = self.fc(out)
+        return out
+
+    # def generate_caption(self, features):
 
 
 class EncoderDecoder(nn.Module):
@@ -205,4 +221,35 @@ class EncoderDecoder(nn.Module):
         predictions = []
         for i in range(batch_size):
             predictions.append([vocab.itos[idx] for idx in result[:, i].tolist()])
-        return predictions
+        predictions = [item for sublist in predictions for item in sublist]
+        SOS_ind = 0
+        EOS_ind = len(predictions)
+        if "<SOS>" in predictions:
+            SOS_ind = predictions.index("<SOS>") + 1
+        if "<EOS>" in predictions:
+            EOS_ind = predictions.index("<EOS>")
+        return predictions[SOS_ind:EOS_ind]
+
+
+class EncoderTransformerDecoder(nn.Module):
+    def __init__(self, encoder_out_dim, embedding_size, vocab_size, num_hiddens,
+                 num_layers, num_heads=2, dropout=0.1):
+
+        super(EncoderTransformerDecoder, self).__init__()
+        self.CNNEncoder = CNNEncoder()
+        self.num_layers = num_layers
+        self.num_heads = num_heads
+        self.dropout = dropout
+        self.encoder_out_dim = encoder_out_dim
+        self.embedding_size = embedding_size
+        self.TransformerDecoder = TranDecoder(encoder_out_dim, embedding_size, vocab_size, num_hiddens, num_layers)
+
+    def forward(self, images, captions):
+        enc_out = self.CNNEncoder(images)
+        dec_out = self.TransformerDecoder(enc_out, captions)
+        return dec_out
+
+
+
+
+
