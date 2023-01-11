@@ -63,7 +63,7 @@ class Vocabulary:
         tmp_list = [self.itos[i.item()] for i in tmp]
         SOSind = tmp_list.index("<SOS>")
         EOSind = tmp_list.index("<EOS>")
-        return ' '.join(tmp_list[SOSind+5:EOSind])
+        return ' '.join(tmp_list[SOSind+1:EOSind])
 
     def sequences_to_texts(self, seqs):
         """
@@ -89,12 +89,12 @@ class FlickrDataset(Dataset):
         :param im_width: new image width we work with
         '''
         self.root_dir = root_dir
-        self.df = pd.read_csv(caps, delimiter='|')
+        self.df = pd.read_csv(caps, delimiter=',')
         self.transforms = transforms
 
         self.im_width = im_width
-        self.img_pts = self.df['image_name']
-        self.caps = self.df[' comment']
+        self.img_pts = self.df['image']
+        self.caps = self.df['caption']
         self.vocab = Vocabulary(freq_threshold)
         self.vocab.build_vocab(self.caps.tolist())
 
