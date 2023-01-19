@@ -42,7 +42,7 @@ def train_one_epoch(model, dataloader, optimizer, criterion, device, augmentatio
         captions = captions.transpose(0, 1)
         #
         with torch.cuda.amp.autocast():
-            outputs, _ = model(images, captions[:, :-1])
+            outputs = model(images, captions[:, :-1])
             if model_class == 'Transformer':
                 loss = criterion(outputs.view(-1, outputs.shape[-1]), captions[:, 1:].reshape(-1))
             else:
@@ -71,16 +71,16 @@ def train_epochs(num_epochs, model, dataloader, optimizer, criterion, device, va
         print("Eval Score: " + str(eval_score))
         valid_points.append(eval_score)
         if (epoch+1) % 5 == 0:
-            torch.save(model.state_dict(), model_class + str(epoch+start_epoch+1) + ".pt")
+            torch.save(model.state_dict(), "R"+model_class + str(epoch+start_epoch+1) + ".pt")
             df = pd.DataFrame({'train_loss': loss_points, 'test_belu': valid_points})
-            df.to_csv(model_class + str(epoch+start_epoch+1) + ".csv")
+            df.to_csv("R"+model_class + str(epoch+start_epoch+1) + ".csv")
             print("Model saved")
     final_loss = loss_points[-1]
     final_score = valid_points[-1]
     return loss_points, valid_points, final_loss, final_score
 
 
-def generate_caption(model, image, vocab, device, max_len=50, temp=1.0, batch_size=128):
+def generate_caption(model, image, vocab, device, max_len=50, temp=0, batch_size=128):
     '''
 
     :param model: The model we use for image captioning
@@ -100,13 +100,16 @@ def generate_caption(model, image, vocab, device, max_len=50, temp=1.0, batch_si
         predicted_caption = inputs.repeat(batch_size, 1)
         for i in range(max_len):
             output = model.decoder(encoder_out, predicted_caption)
-            word_weights = output[:, -1, :].squeeze().div(temp).exp()
-            word_idx = torch.multinomial(word_weights, 1)
+            if temp == 0:
+                word_idx = output[:, -1].argmax(dim=1)
+            else:
+                word_weights = output[:, -1, :].squeeze().div(temp).exp()
+                word_idx = torch.multinomial(word_weights, 1)
             # word_idx = output[:, -1].argmax(dim=1)
             predicted = word_idx
             if len(predicted.size()) == 1:
                 predicted = predicted.unsqueeze(0)
-            predicted_caption = torch.cat((predicted_caption, predicted), 1)
+            predicted_caption = torch.cat((predicted_caption, predicted.T), 1)
             # predicted_caption = torch.cat((x, output.argmax(dim=2)), 1)
     torch.cuda.empty_cache()
     # return [vocab.itos[idx] for idx in predicted_caption.tolist()]
@@ -196,7 +199,7 @@ if __name__ == '__main__':
                             shuffle=shuffle,
                             collate_fn=data.CapCollat(pad_idx=pad_idx))
     # optimizer = torch.optim.SGD(model.parameters(), lr=1e-4)
-    num_epochs = 50
+    num_epochs = 100
     singleimageloader = DataLoader(dataset,
                                    batch_size=1,
                                    pin_memory=pin_memory,
@@ -225,28 +228,28 @@ if __name__ == '__main__':
     eps = 1e-8
     norm_first = True
     warmup_steps = 195
-    model = TransformerEncoderDecoder(hidden_size=hidden_size, num_layers=num_layers, vocab_size=len(vocabulary),
-                                      embed_size=768, n_head=n_head, norm_first=norm_first)
-    '''
+    torch.manual_seed(123)
+    '''model = TransformerEncoderDecoder(hidden_size=hidden_size, num_layers=num_layers, vocab_size=len(vocabulary),
+                                      embed_size=768, n_head=n_head, norm_first=norm_first)'''
+
     model = LSTMDecoderEncoderBERT(embed_size=embedding_size, hidden_size=hidden_size, vocab_size=len(vocabulary),
                                    num_layers=num_layers, max_seq_length=50)
-                                   '''
     model = model.to(device)
-    model.load_state_dict(torch.load('Transformer105.pt'))
+    # model.load_state_dict(torch.load('RTransformer75.pt'))
     pad_idx = bert_tokenizer.pad_token_id
     criterion = nn.CrossEntropyLoss(ignore_index=pad_idx).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay,
                                   betas=(beta1, beta2), eps=eps)
     # scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.682111)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=1000)
-    warmup_scheduler = warmup.RAdamWarmup(optimizer)
+    # warmup_scheduler = warmup.RAdamWarmup(optimizer)
     loss_points, test_points, final_loss, final_test = train_epochs(num_epochs=num_epochs, model=model, dataloader=trainloader_full,
                                                  optimizer=optimizer, criterion=criterion, device=device,
                                                  validloader=testloader, vocab=vocabulary, augmentations=aug_list,
-                                                 warmup_scheduler=warmup_scheduler, model_class='Transformer',
-                                                                    start_epoch=65)
+                                                 warmup_scheduler=None, model_class='LSTM',
+                                                                    start_epoch=0)
     model.eval()
-    torch.save(model, 'Transformer_final.pth')
+    torch.save(model, 'LSTM_final.pth')
     plt.figure()
     plt.plot(loss_points, label="Train loss")
     plt.plot(test_points, label="Test Score")
@@ -257,7 +260,7 @@ if __name__ == '__main__':
     print("Final train loss: ", final_loss)
     print("Final test loss: ", final_test)
     df = pd.DataFrame({"Train loss": loss_points, "Test loss": test_points})
-    df.to_csv("Transformer_BERT.csv")
+    df.to_csv("LSTM_BERT.csv")
     # pretrained word embedding (Bert) - done
     # perflix - check gits in mail
     # kornia augmantations - done

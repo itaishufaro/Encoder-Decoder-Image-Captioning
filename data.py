@@ -169,11 +169,11 @@ def convert_to_imshow_format(image):
 
 
 def show_img(img, caption):
+    plt.axis('off')
     img = convert_to_imshow_format(img)
     plt.imshow(img)
     plt.title(caption)
     plt.show()
-    plt.axis('off')
 
 '''
 if __name__ == "__main__":
