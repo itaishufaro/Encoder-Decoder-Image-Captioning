@@ -1,1 +1,5 @@
 /flickr30k/
+/flickr8k/
+LSTM_optuna.db
+Transformerdecoder.pth
+Transformerencoder_BERT.pth
