@@ -13,24 +13,28 @@ import spacy
 import os
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
+from transformers import BertTokenizer
 # import models
 
 spacy_eng = spacy.load("en_core_web_sm")  # load nlp model
-
+bert_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 
 # For prepararing the vocabulary
 class Vocabulary:
     def __init__(self, freq_threshold):
         self.freq_threshold = freq_threshold
-        self.itos = {0: "<PAD>", 1: "<SOS>", 2: "<EOS>", 3: "<UNK>"}
+        # self.itos = {0: "<PAD>", 1: "<SOS>", 2: "<EOS>", 3: "<UNK>"}  # for spacy
+        self.itos = {0: "[PAD]", 1: "[CLS]", 2: "[SEP]", 3: "[UNK]"}
         self.stoi = {v: k for k, v in self.itos.items()}
+        self.bert_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+
 
     def __len__(self):
         return len(self.itos)
 
-    @staticmethod
-    def tokenize(text):
-        return [token.text.lower() for token in spacy_eng.tokenizer(str(text))]
+    def tokenize(self, text):
+        # return [token.text.lower() for token in spacy_eng.tokenizer(str(text))]
+        return self.bert_tokenizer.tokenize(text)
 
     def build_vocab(self, sent_list):
         freqs = {}
@@ -50,7 +54,7 @@ class Vocabulary:
 
     def numericalize(self, sents):
         tokens = self.tokenize(sents)
-        return [self.stoi[token] if token in self.stoi else self.stoi["<UNK>"]
+        return [self.stoi[token] if token in self.stoi else self.stoi["[UNK]"]
                 for token in tokens]
 
     def sequence_to_text(self, seq):
@@ -61,8 +65,10 @@ class Vocabulary:
         """
         tmp = seq.squeeze()
         tmp_list = [self.itos[i.item()] for i in tmp]
-        SOSind = tmp_list.index("<SOS>")
-        EOSind = tmp_list.index("<EOS>")
+        # SOSind = tmp_list.index("<SOS>")  # for spacy
+        # EOSind = tmp_list.index("<EOS>")  # for spacy
+        SOSind = tmp_list.index('[CLS]')  # for bert
+        EOSind = tmp_list.index('[SEP]')  # for bert
         return ' '.join(tmp_list[SOSind+1:EOSind])
 
     def sequences_to_texts(self, seqs):
@@ -95,8 +101,8 @@ class FlickrDataset(Dataset):
         self.im_width = im_width
         self.img_pts = self.df['image']
         self.caps = self.df['caption']
-        self.vocab = Vocabulary(freq_threshold)
-        self.vocab.build_vocab(self.caps.tolist())
+        self.vocab = bert_tokenizer.vocab
+        # self.vocab.build_vocab(self.caps.tolist())
 
     def __len__(self):
         return len(self.df)
@@ -113,9 +119,12 @@ class FlickrDataset(Dataset):
             img = self.transforms(img)
 
         numberized_caps = []
-        numberized_caps += [self.vocab.stoi["<SOS>"]]  # stoi string to index
-        numberized_caps += self.vocab.numericalize(captions)
-        numberized_caps += [self.vocab.stoi["<EOS>"]]
+        # numberized_caps += [self.vocab.stoi["<SOS>"]]  # for spacy
+        numberized_caps.append(self.vocab["[CLS]"])  # for bert
+        numberized_caps += (bert_tokenizer.convert_tokens_to_ids(bert_tokenizer.tokenize(captions)))
+        # numberized_caps += [self.vocab.stoi["<EOS>"]] # for spacy
+        numberized_caps.append(self.vocab["[SEP]"])  # for bert
+        # numberized_caps = bert_tokenizer.build_inputs_with_special_tokens(captions)
         return img, torch.tensor(numberized_caps)
 
 
@@ -131,6 +140,23 @@ class CapCollat:
         targets = pad_sequence(targets, batch_first=False, padding_value=self.pad_idx)
 
         return imgs, targets
+
+def train_valid_test_split(df, train_percent=.8, valid_percent=.1, seed=0):
+    '''
+    :param df: dataframe to split
+    :param train_percent: percentage of the data to be used for training
+    :param valid_percent: percentage of the data to be used for validation
+    :param seed: random seed
+    '''
+    np.random.seed(seed)
+    perm = np.random.permutation(df.index)
+    m = len(df.index)
+    train_end = int(train_percent * m)
+    valid_end = int(valid_percent * m) + train_end
+    train = df.iloc[perm[:train_end]]
+    valid = df.iloc[perm[train_end:valid_end]]
+    test = df.iloc[perm[valid_end:]]
+    return train, valid, test
 
 
 def convert_to_imshow_format(image):

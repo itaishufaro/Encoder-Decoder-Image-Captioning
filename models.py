@@ -4,16 +4,18 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 from torchvision.datasets import ImageFolder
 from torchvision import models, transforms
+import torchtext
 import torchvision.transforms as T
 import torchvision
 import data
 from data import FlickrDataset
 import math
 import numpy as np
+from transformers import BertModel
 
 
 class CNNEncoder(nn.Module):
-    def __init__(self):
+    def __init__(self, embed_size):
         '''
         Encoder for images of using resnet50
         architecture without the FC layers at the end.
@@ -22,19 +24,21 @@ class CNNEncoder(nn.Module):
         '''
         super(CNNEncoder, self).__init__()
         resnet = models.resnet50(weights=[models.ResNet50_Weights])  # we use resnet50 as our encoder
-        self.conv_layers = nn.Sequential(*list(resnet.children())[:-2])
-        self.avg_pool = nn.AvgPool2d(2)
+        self.conv_layers = nn.Sequential(*list(resnet.children())[:-1])
         self.conv_layers.requires_grad_(False)
+        self.linear = nn.Linear(resnet.fc.in_features, embed_size)
+        self.bn = nn.BatchNorm1d(embed_size, momentum=0.01)
 
-    def forward(self, x):
-        x = self.conv_layers(x)
-        x = self.avg_pool(x)
-        x = x.view(x.shape[0], -1)  # Flatten the input at the end to get features vector
-        return x
+    def forward(self, images):
+        with torch.no_grad():
+            features = self.conv_layers(images)
+        features = features.reshape(features.size(0), -1)
+        features = self.bn(self.linear(features))
+        return features
 
 
 class LSTMDecoder(nn.Module):
-    def __init__(self, encoder_dim, embedding_size, hidden_size, vocab_size, device, max_seq_length=200,
+    def __init__(self, encoder_dim, embedding_size, hidden_size, vocab_size, device, max_seq_length=200, embedding_bert=768,
                  dropout=0.1):
         '''
 
@@ -54,22 +58,24 @@ class LSTMDecoder(nn.Module):
         self.max_seq_length = max_seq_length
 
         # Embedding layer to map input words to word embeddings
-        self.embedding = nn.Embedding(vocab_size, embedding_size)
+        self.embedding = WordEmbedding()
         self.dropout = nn.Dropout(p=dropout)
         self.lstm = nn.LSTMCell(embedding_size, hidden_size)
         self.init_h = nn.Linear(encoder_dim, hidden_size)
         self.init_c = nn.Linear(encoder_dim, hidden_size)
         self.fc = nn.Linear(hidden_size, vocab_size)
         self.emb_features = nn.Linear(encoder_dim, embedding_size)
+        self.linear = nn.Linear(embedding_bert, embedding_size)
         self.init_weights()
 
     def init_weights(self):
         # We initialize all the weights
-        self.embedding.weight.data.uniform_(-0.1, 0.1)
-        self.fc.bias.data.fill_(0)
-        self.fc.weight.data.uniform_(-0.1, 0.1)
-        self.init_h.weight.data.uniform_(-0.1, 0.1)
-        self.init_c.weight.data.uniform_(-0.1, 0.1)
+        # self.embedding.weight.data.uniform_(-0.1, 0.1)
+        # nn.init.kaiming_normal(self.fc.bias.data)
+        nn.init.kaiming_normal_(self.fc.weight.data)
+        nn.init.kaiming_normal_(self.init_h.weight.data)
+        nn.init.kaiming_normal_(self.init_c.weight.data)
+        nn.init.kaiming_normal_(self.linear.weight.data)
 
     def init_h_c(self, encoder_out):
         h = self.init_h(encoder_out)  # (batch_size, decoder_dim)
@@ -82,7 +88,7 @@ class LSTMDecoder(nn.Module):
 
         emb_features = self.emb_features(features)
         embeddings = self.embedding(captions)  # (batch_size, max_caption_length, embed_dim)
-
+        embeddings = self.linear(self.dropout(embeddings))
         h, c = self.init_h_c(features)  # (batch_size, decoder_dim)
 
         decode_length = captions.size(1)
@@ -91,7 +97,7 @@ class LSTMDecoder(nn.Module):
 
         # first pass the image through
         h, c = self.lstm(emb_features, (h, c))
-        predictions[:, 0, :] = self.fc(self.dropout(h))
+        predictions[:, 0, :] = self.fc(h)
         # then the sentence w/o the first word
         for t in range(decode_length):
             h, c = self.lstm(embeddings[:, t, :], (h, c))  # (batch_size_t, hidden)
@@ -100,6 +106,68 @@ class LSTMDecoder(nn.Module):
 
         return predictions
 
+
+class LSTMDecoderBERT(nn.Module):
+    def __init__(self, embed_size, hidden_size, vocab_size, num_layers, max_seq_length=20):
+        """Set the hyper-parameters and build the layers."""
+        super(LSTMDecoderBERT, self).__init__()
+        bert_model = BertModel.from_pretrained('bert-base-uncased')
+        weight = bert_model.embeddings.word_embeddings.weight
+        self.lstm = nn.LSTM(embed_size, hidden_size, num_layers, batch_first=True)  # change for LSTM or RNN
+        self.linear = nn.Linear(hidden_size, vocab_size)
+        self.max_seg_length = max_seq_length
+        self.prembed = nn.Embedding.from_pretrained(weight)
+        self.prembed.requires_grad_(False)
+        self.init_weights()
+
+    def forward(self, features, captions):
+        """Decode image feature vectors and generates captions."""
+        with torch.no_grad():
+            embeddings = self.prembed(captions).float()
+        try:
+            embeddings = torch.cat((features.unsqueeze(1), embeddings), 1)
+        except RuntimeError:
+            print("error")
+        hiddens, _ = self.lstm(embeddings)
+        outputs = self.linear(hiddens)
+        return outputs
+
+    def init_weights(self):
+        """Initialize weights."""
+        nn.init.kaiming_normal_(self.linear.weight)
+        self.linear.bias.data.fill_(0)
+        # self.lstm._all_weights.data.kaiming_normal_()
+
+
+class LSTMDecoderEncoderBERT(nn.Module):
+    def __init__(self, embed_size, hidden_size, vocab_size, num_layers, max_seq_length=20):
+        """Set the hyper-parameters and build the layers."""
+        super(LSTMDecoderEncoderBERT, self).__init__()
+        self.encoder = CNNEncoder(embed_size)
+        self.decoder = LSTMDecoderBERT(embed_size, hidden_size, vocab_size, num_layers, max_seq_length)
+
+    def forward(self, images, captions):
+        """Decode image feature vectors and generates captions."""
+        features = self.encoder(images)
+        outputs = self.decoder(features, captions)
+        return outputs
+
+class WordEmbedding(nn.Module):
+    def __init__(self):
+        super(WordEmbedding, self).__init__()
+        bert_model = BertModel.from_pretrained('bert-base-uncased')
+        embed_matrix = bert_model.embeddings.word_embeddings.weight
+        self.vocab_size = embed_matrix.shape[0]
+        self.bert = nn.Embedding(embed_matrix.shape[0], embed_matrix.shape[1])
+        self.bert.weight = embed_matrix
+        self.bert.requires_grad_(False)
+
+    def forward(self, x):
+        output = self.bert(x)
+        return output
+
+    def getVocabSize(self):
+        return self.vocab_size
 
 class PositionalEncoding(nn.Module):
     def __init__(self, num_hiddens, dropout, max_len=1000):
@@ -138,11 +206,13 @@ class TranDecoder(nn.Module):
         self.encoder_out_dim = encoder_out_dim
         self.embedding_size = embedding_size
         self.word_embedding = nn.Embedding(vocab_size, embedding_size)
-        self.positional_embedding = PositionalEncoding(num_hiddens, dropout)
+        self.positional_embedding = PositionalEncoding(embedding_size, dropout)
         self.TransformerLayer = nn.TransformerDecoderLayer(embedding_size, num_heads, dropout=dropout,
                                                       activation="gelu", batch_first=True)
-        self.Transformer = nn.TransformerDecoder(self.TransformerLayer, self.num_layers)
+        self.Transformer = nn.TransformerDecoder(self.TransformerLayer, self.num_layers,
+                                                 norm=nn.LayerNorm(embedding_size))
         self.fc = nn.Linear(embedding_size, vocab_size)
+        # self.linear = nn.Linear(768, embedding_size)
         self.feature_linear = nn.Linear(encoder_out_dim, embedding_size)
 
         self.init_weights()
@@ -164,7 +234,7 @@ class TranDecoder(nn.Module):
         emb_features = self.feature_linear(features)
         embed = self.word_embedding(captions)
         positional_embed = self.positional_embedding(embed)
-        out = self.Transformer(tgt=positional_embed, memory=emb_features.unsqueeze(1))
+        out = self.Transformer(tgt=embed, memory=emb_features.unsqueeze(1))
         out = self.fc(out)
         return out
 
@@ -224,10 +294,16 @@ class EncoderDecoder(nn.Module):
         predictions = [item for sublist in predictions for item in sublist]
         SOS_ind = 0
         EOS_ind = len(predictions)
-        if "<SOS>" in predictions:
+        # for spacy :
+        '''if "<SOS>" in predictions:
             SOS_ind = predictions.index("<SOS>") + 1
         if "<EOS>" in predictions:
-            EOS_ind = predictions.index("<EOS>")
+            EOS_ind = predictions.index("<EOS>")'''
+        # for bert :
+        if "[CLS]" in predictions:
+            SOS_ind = predictions.index("[CLS]") + 1
+        if "[SEP]" in predictions:
+            EOS_ind = predictions.index("[SEP]")
         return predictions[SOS_ind:EOS_ind]
 
 
