@@ -13,6 +13,8 @@ import math
 import numpy as np
 from transformers import BertModel
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 class CNNEncoder(nn.Module):
     def __init__(self, embed_size):
@@ -37,76 +39,6 @@ class CNNEncoder(nn.Module):
         return features
 
 
-class LSTMDecoder(nn.Module):
-    def __init__(self, encoder_dim, embedding_size, hidden_size, vocab_size, device, max_seq_length=200, embedding_bert=768,
-                 dropout=0.1):
-        '''
-
-        :param encoder_dim: size of output encoder
-        :param embedding_size: size of the vocab embedding
-        :param hidden_size: hidden size used for the input features
-        :param vocab_size: size of the vocabulary
-        :param num_layers: number of layers in the LSTM layer
-        :param max_seq_length: maximum possible sequence length
-        '''
-        super(LSTMDecoder, self).__init__()
-        self.encoder_dim = encoder_dim
-        self.embedding_size = embedding_size
-        self.hidden_size = hidden_size
-        self.vocab_size = vocab_size
-        self.device = device
-        self.max_seq_length = max_seq_length
-
-        # Embedding layer to map input words to word embeddings
-        self.embedding = WordEmbedding()
-        self.dropout = nn.Dropout(p=dropout)
-        self.lstm = nn.LSTMCell(embedding_size, hidden_size)
-        self.init_h = nn.Linear(encoder_dim, hidden_size)
-        self.init_c = nn.Linear(encoder_dim, hidden_size)
-        self.fc = nn.Linear(hidden_size, vocab_size)
-        self.emb_features = nn.Linear(encoder_dim, embedding_size)
-        self.linear = nn.Linear(embedding_bert, embedding_size)
-        self.init_weights()
-
-    def init_weights(self):
-        # We initialize all the weights
-        # self.embedding.weight.data.uniform_(-0.1, 0.1)
-        # nn.init.kaiming_normal(self.fc.bias.data)
-        nn.init.kaiming_normal_(self.fc.weight.data)
-        nn.init.kaiming_normal_(self.init_h.weight.data)
-        nn.init.kaiming_normal_(self.init_c.weight.data)
-        nn.init.kaiming_normal_(self.linear.weight.data)
-
-    def init_h_c(self, encoder_out):
-        h = self.init_h(encoder_out)  # (batch_size, decoder_dim)
-        c = self.init_c(encoder_out)
-        return h, c
-
-    def forward(self, features, captions):
-        batch_size = features.size(0)
-        vocab_size = self.vocab_size
-
-        emb_features = self.emb_features(features)
-        embeddings = self.embedding(captions)  # (batch_size, max_caption_length, embed_dim)
-        embeddings = self.linear(self.dropout(embeddings))
-        h, c = self.init_h_c(features)  # (batch_size, decoder_dim)
-
-        decode_length = captions.size(1)
-
-        predictions = torch.zeros(batch_size, decode_length+1, vocab_size).to(self.device)
-
-        # first pass the image through
-        h, c = self.lstm(emb_features, (h, c))
-        predictions[:, 0, :] = self.fc(h)
-        # then the sentence w/o the first word
-        for t in range(decode_length):
-            h, c = self.lstm(embeddings[:, t, :], (h, c))  # (batch_size_t, hidden)
-            preds = self.fc(self.dropout(h))  # (batch_size_t, vocab_size)
-            predictions[:, t + 1, :] = preds
-
-        return predictions
-
-
 class LSTMDecoderBERT(nn.Module):
     def __init__(self, embed_size, hidden_size, vocab_size, num_layers, max_seq_length=20):
         """Set the hyper-parameters and build the layers."""
@@ -124,10 +56,7 @@ class LSTMDecoderBERT(nn.Module):
         """Decode image feature vectors and generates captions."""
         with torch.no_grad():
             embeddings = self.prembed(captions).float()
-        try:
-            embeddings = torch.cat((features.unsqueeze(1), embeddings), 1)
-        except RuntimeError:
-            print("error")
+        embeddings = torch.cat((features.unsqueeze(1), embeddings), 1)
         hiddens, _ = self.lstm(embeddings)
         outputs = self.linear(hiddens)
         return outputs
@@ -135,6 +64,8 @@ class LSTMDecoderBERT(nn.Module):
     def init_weights(self):
         """Initialize weights."""
         nn.init.kaiming_normal_(self.linear.weight)
+        nn.init.kaiming_normal_(self.lstm.weight_ih_l0)
+        nn.init.kaiming_normal_(self.lstm.weight_hh_l0)
         self.linear.bias.data.fill_(0)
         # self.lstm._all_weights.data.kaiming_normal_()
 
@@ -151,6 +82,7 @@ class LSTMDecoderEncoderBERT(nn.Module):
         features = self.encoder(images)
         outputs = self.decoder(features, captions)
         return outputs
+
 
 class WordEmbedding(nn.Module):
     def __init__(self):
@@ -169,162 +101,147 @@ class WordEmbedding(nn.Module):
     def getVocabSize(self):
         return self.vocab_size
 
+
 class PositionalEncoding(nn.Module):
-    def __init__(self, num_hiddens, dropout, max_len=1000):
+    def __init__(self, num_hiddens, dropout=0.1, max_len=1000, max_batch_size=512):
         super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(dropout)
         # Create a long enough `P`
-        self.P = torch.zeros((1, max_len, num_hiddens))
+        self.P = torch.zeros((max_batch_size, max_len, num_hiddens))
         x = torch.arange(0, max_len, dtype=torch.float32).reshape(-1, 1)
         x = x / torch.pow(10_000, torch.arange(0, num_hiddens, 2, dtype=torch.float32) / num_hiddens)
         self.P[:, :, 0::2] = torch.sin(x)
         self.P[:, :, 1::2] = torch.cos(x)
 
     def forward(self, x):
-        tmp = x + self.P[:, :x.shape[1], :].to(x.device)
+        batch_size = x.size(0)
+        tmp = x + self.P[:batch_size, :x.shape[1], :].to(x.device)
         return self.dropout(tmp)
 
 
 class TranDecoder(nn.Module):
-    def __init__(self, encoder_out_dim, embedding_size, vocab_size, num_hiddens,
-                 num_layers, num_heads=2, dropout=0.1):
-        '''
-        :param encoder_out_dim: Output dimension of encoder
-        :param output_dim: Output dimension of decoder (vocab size)
-        :param num_layers: Number of transformer layers
-        :param vocab_size: Vocabulary size
-        :param num_heads: Number of heads in MHA
-        :param hidden_dim: Hidden dimension used for embedding of the features
-                            given by the decoder
-        :param dropout: dropout probability for features
-        '''
+    def __init__(self, embed_size, hidden_size, vocab_size, num_layers, n_head, max_seq_length=20,
+                 norm_first=False):
         super(TranDecoder, self).__init__()
-        # self.hidden_dim = hidden_dim
-        self.num_layers = num_layers
-        self.num_heads = num_heads
-        self.dropout = dropout
-        self.encoder_out_dim = encoder_out_dim
-        self.embedding_size = embedding_size
-        self.word_embedding = nn.Embedding(vocab_size, embedding_size)
-        self.positional_embedding = PositionalEncoding(embedding_size, dropout)
-        self.TransformerLayer = nn.TransformerDecoderLayer(embedding_size, num_heads, dropout=dropout,
-                                                      activation="gelu", batch_first=True)
-        self.Transformer = nn.TransformerDecoder(self.TransformerLayer, self.num_layers,
-                                                 norm=nn.LayerNorm(embedding_size))
-        self.fc = nn.Linear(embedding_size, vocab_size)
-        # self.linear = nn.Linear(768, embedding_size)
-        self.feature_linear = nn.Linear(encoder_out_dim, embedding_size)
-
+        self.TransformerDecoderLayer = nn.TransformerDecoderLayer(d_model=embed_size, nhead=n_head, batch_first=True,
+                                                                  norm_first=norm_first)
+        self.transformer = nn.TransformerDecoder(self.TransformerDecoderLayer, num_layers=num_layers)
+        self.linear = nn.Linear(embed_size, vocab_size)
+        self.max_seg_length = max_seq_length
+        bert_model = BertModel.from_pretrained('bert-base-uncased')
+        self.prembed = bert_model.embeddings
+        # self.prembed = nn.Embedding.from_pretrained(weight)
+        self.prembed.requires_grad_(False)
         self.init_weights()
 
-    def init_weights(self):
-        nn.init.xavier_uniform_(self.fc.weight)
-        nn.init.xavier_uniform_(self.feature_linear.weight)
-        for p in self.Transformer.parameters():
-            if p.dim() > 1:
-                nn.init.xavier_uniform_(p)
-
-    def forward(self, features, captions):
-        """
-
-        :param features: Input features
-        :param captions: Input target captions
-        :return: Transofrmer sequential output
-        """
-        emb_features = self.feature_linear(features)
-        embed = self.word_embedding(captions)
-        positional_embed = self.positional_embedding(embed)
-        out = self.Transformer(tgt=embed, memory=emb_features.unsqueeze(1))
-        out = self.fc(out)
-        return out
-
-    # def generate_caption(self, features):
-
-
-class EncoderDecoder(nn.Module):
-    def __init__(self, encoder_out, embedding_size, hidden_size, vocab_size, device,
-                 num_layers=1, max_seq_length=50):
-        super(EncoderDecoder, self).__init__()
-        self.encoder_out = encoder_out
-        self.embedding_size = embedding_size
-        self.hidden_size = hidden_size
-        self.vocab_size = vocab_size
-        self.num_layers = num_layers
-        self.max_seq_length = max_seq_length
-        self.encoder = CNNEncoder()
-        self.decoder = LSTMDecoder(encoder_out, embedding_size, hidden_size, vocab_size, device, max_seq_length=max_seq_length)
-    def forward(self, image, caption):
-        features = self.encoder(image)
-        output = self.decoder(features, caption)
-        return output
 
     def init_weights(self):
+        """Initialize weights."""
+        nn.init.kaiming_normal_(self.linear.weight)
+        nn.init.kaiming_normal_(self.TransformerDecoderLayer.self_attn.in_proj_weight)
+        nn.init.kaiming_normal_(self.TransformerDecoderLayer.multihead_attn.in_proj_weight)
+        self.linear.bias.data.fill_(0)
+
+    def generate_mask(self, size, decoder_inp):
+        decoder_input_mask = (torch.triu(torch.ones(size, size)) == 1).transpose(0, 1)
+        decoder_input_mask = decoder_input_mask.float().masked_fill(decoder_input_mask == 0, float('-inf')).masked_fill(
+            decoder_input_mask == 1, float(0.0))
+
+        decoder_input_pad_mask = decoder_inp.float().masked_fill(decoder_inp == 0, float(0.0)).masked_fill(
+            decoder_inp > 0, float(1.0))
+        decoder_input_pad_mask_bool = decoder_inp == 0
+
+        return decoder_input_mask, decoder_input_pad_mask, decoder_input_pad_mask_bool
+
+    def forward(self, features, decoder_inp):
+        decoder_inp_embed = self.prembed(decoder_inp)
+        decoder_input_mask, decoder_input_pad_mask, decoder_input_pad_mask_bool = self.generate_mask(
+            decoder_inp.size(1), decoder_inp)
+        decoder_input_mask = decoder_input_mask.to(device)
+        decoder_input_pad_mask = decoder_input_pad_mask.to(device)
+        decoder_input_pad_mask_bool = decoder_input_pad_mask_bool.to(device)
+        decoder_output = self.transformer(tgt=decoder_inp_embed, memory=features.unsqueeze(1),
+                                          tgt_mask=decoder_input_mask,
+                                          tgt_key_padding_mask=decoder_input_pad_mask_bool)
+        outputs = self.linear(decoder_output)
+        return outputs
+
+
+class TransformerEncoderDecoder(nn.Module):
+    def __init__(self, embed_size, hidden_size, vocab_size, num_layers, n_head, max_seq_length=20,
+                 norm_first=False):
+        super(TransformerEncoderDecoder, self).__init__()
+        self.encoder = CNNEncoder(embed_size)
+        self.decoder = TranDecoder(embed_size, hidden_size, vocab_size, num_layers, n_head, max_seq_length,
+                                   norm_first=norm_first)
         self.decoder.init_weights()
 
-    def generate_caption(self, image, vocab):
-        '''
-        Create caption for image
-        :param image: the image we want to create the caption of
-        :param vocab: the vocabulary according to which we caption
-        :return: the caption as a string
-        '''
-        result = []
-        batch_size = len(image)
-        with torch.no_grad():
-            features = self.encoder(image)
-            h, c = self.decoder.init_h_c(features)
-            x = self.decoder.emb_features(features)
+    def forward(self, images, captions):
+        features = self.encoder(images)
+        outputs = self.decoder(features, captions)
+        return outputs
 
-            for i in range(self.max_seq_length):
-                h, c = self.decoder.lstm(x, (h, c))
-                output = self.decoder.fc(h)
-                prediction = output.argmax(dim=1)
-                if len(result) != 0:
-                    result = torch.vstack((result, prediction))
-                else:
-                    result = prediction
-                    ''' 
-                    if vocab.itos[prediction.tolist()] == "<EOS>":
-                        break
-                    '''
-                x = self.decoder.embedding(prediction)
-        predictions = []
-        for i in range(batch_size):
-            predictions.append([vocab.itos[idx] for idx in result[:, i].tolist()])
-        predictions = [item for sublist in predictions for item in sublist]
-        SOS_ind = 0
-        EOS_ind = len(predictions)
-        # for spacy :
-        '''if "<SOS>" in predictions:
-            SOS_ind = predictions.index("<SOS>") + 1
-        if "<EOS>" in predictions:
-            EOS_ind = predictions.index("<EOS>")'''
-        # for bert :
-        if "[CLS]" in predictions:
-            SOS_ind = predictions.index("[CLS]") + 1
-        if "[SEP]" in predictions:
-            EOS_ind = predictions.index("[SEP]")
-        return predictions[SOS_ind:EOS_ind]
+'''class TranDecoderNoEmbedding(nn.Module):
+    def __init__(self, embed_size, hidden_size, vocab_size, num_layers, n_head, max_seq_length=20,
+                 norm_first=False):
+        super(TranDecoderNoEmbedding, self).__init__()
+        self.TransformerDecoderLayer = nn.TransformerDecoderLayer(d_model=embed_size, nhead=n_head, batch_first=True,
+                                                                  norm_first=norm_first)
+        self.transformer = nn.TransformerDecoder(self.TransformerDecoderLayer, num_layers=num_layers)
+        self.linear = nn.Linear(embed_size, vocab_size)
+        self.max_seg_length = max_seq_length
+        bert_model = BertModel.from_pretrained('bert-base-uncased')
+        # self.prembed = bert_model.embeddings
+        self.prembed = nn.Embedding(vocab_size, embed_size)
+        self.positinal_emb = PositionalEncoding(embed_size)
+        # self.prembed.requires_grad_(False)
+        self.init_weights()
 
 
-class EncoderTransformerDecoder(nn.Module):
-    def __init__(self, encoder_out_dim, embedding_size, vocab_size, num_hiddens,
-                 num_layers, num_heads=2, dropout=0.1):
+    def init_weights(self):
+        """Initialize weights."""
+        nn.init.kaiming_normal_(self.linear.weight)
+        self.linear.bias.data.fill_(0)
 
-        super(EncoderTransformerDecoder, self).__init__()
-        self.CNNEncoder = CNNEncoder()
-        self.num_layers = num_layers
-        self.num_heads = num_heads
-        self.dropout = dropout
-        self.encoder_out_dim = encoder_out_dim
-        self.embedding_size = embedding_size
-        self.TransformerDecoder = TranDecoder(encoder_out_dim, embedding_size, vocab_size, num_hiddens, num_layers)
+    def generate_mask(self, size, decoder_inp):
+        decoder_input_mask = (torch.triu(torch.ones(size, size)) == 1).transpose(0, 1)
+        decoder_input_mask = decoder_input_mask.float().masked_fill(decoder_input_mask == 0, float('-inf')).masked_fill(
+            decoder_input_mask == 1, float(0.0))
+
+        decoder_input_pad_mask = decoder_inp.float().masked_fill(decoder_inp == 0, float(0.0)).masked_fill(
+            decoder_inp > 0, float(1.0))
+        decoder_input_pad_mask_bool = decoder_inp == 0
+
+        return decoder_input_mask, decoder_input_pad_mask, decoder_input_pad_mask_bool
+
+    def forward(self, features, decoder_inp):
+        decoder_inp_embed = self.prembed(decoder_inp)
+        decoder_inp_embed = self.positinal_emb(decoder_inp_embed)
+        decoder_input_mask, decoder_input_pad_mask, decoder_input_pad_mask_bool = self.generate_mask(
+            decoder_inp.size(1), decoder_inp)
+        decoder_input_mask = decoder_input_mask.to(device)
+        decoder_input_pad_mask = decoder_input_pad_mask.to(device)
+        decoder_input_pad_mask_bool = decoder_input_pad_mask_bool.to(device)
+        decoder_output = self.transformer(tgt=decoder_inp_embed, memory=features.unsqueeze(1),
+                                          tgt_mask=decoder_input_mask,
+                                          tgt_key_padding_mask=decoder_input_pad_mask_bool)
+        outputs = self.linear(decoder_output)
+        return outputs
+
+
+class TransformerEncoderDecoderNoEmbedding(nn.Module):
+    def __init__(self, embed_size, hidden_size, vocab_size, num_layers, n_head, max_seq_length=20,
+                 norm_first=False):
+        super(TransformerEncoderDecoderNoEmbedding, self).__init__()
+        self.encoder = CNNEncoder(embed_size)
+        self.decoder = TranDecoderNoEmbedding(embed_size, hidden_size, vocab_size, num_layers, n_head, max_seq_length,
+                                   norm_first=norm_first)
+        self.decoder.init_weights()
 
     def forward(self, images, captions):
-        enc_out = self.CNNEncoder(images)
-        dec_out = self.TransformerDecoder(enc_out, captions)
-        return dec_out
-
+        features = self.encoder(images)
+        outputs = self.decoder(features, captions)
+        return outputs'''
 
 
 

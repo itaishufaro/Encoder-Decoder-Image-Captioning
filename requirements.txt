@@ -1,25 +1,40 @@
+alembic @ file:///home/conda/feedstock_root/build_artifacts/alembic_1671877868880/work
+attrs @ file:///home/conda/feedstock_root/build_artifacts/attrs_1671632566681/work
+autopage @ file:///home/conda/feedstock_root/build_artifacts/autopage_1654109489215/work
+backports.functools-lru-cache @ file:///home/conda/feedstock_root/build_artifacts/backports.functools_lru_cache_1618230623929/work
 blis==0.7.9
+bottle==0.12.23
 brotlipy==0.7.0
 catalogue==2.0.8
-certifi @ file:///C:/b/abs_85o_6fm0se/croot/certifi_1671487778835/work/certifi
+certifi==2022.12.7
 cffi @ file:///C:/b/abs_49n3v2hyhr/croot/cffi_1670423218144/work
 charset-normalizer==2.1.1
 click==8.1.3
-colorama==0.4.6
+cliff @ file:///home/conda/feedstock_root/build_artifacts/cliff_1668855597503/work
+cmaes @ file:///home/conda/feedstock_root/build_artifacts/cmaes_1673007708181/work
+cmd2 @ file:///D:/bld/cmd2_1667500107051/work
+colorama @ file:///C:/b/abs_a9ozq0l032/croot/colorama_1672387194846/work
+colorlog==6.7.0
 confection==0.0.3
 contourpy==1.0.6
 cryptography @ file:///C:/b/abs_36x9ifdcl4/croot/cryptography_1665612655344/work
 cycler==0.11.0
 cymem==2.0.7
 en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.4.1/en_core_web_sm-3.4.1-py3-none-any.whl
+filelock @ file:///C:/b/abs_c7yrhs9uz2/croot/filelock_1672387617533/work
 flit_core @ file:///opt/conda/conda-bld/flit-core_1644941570762/work/source/flit_core
 fonttools==4.38.0
+huggingface-hub==0.11.1
 idna @ file:///C:/b/abs_bdhbebrioa/croot/idna_1666125572046/work
+importlib-metadata @ file:///C:/ci/importlib-metadata_1648544469310/work
+importlib-resources @ file:///home/conda/feedstock_root/build_artifacts/importlib_resources_1672681417544/work
 Jinja2==3.1.2
 joblib==1.2.0
 kiwisolver==1.4.4
+kornia @ file:///home/conda/feedstock_root/build_artifacts/kornia_1671678046448/work
 langcodes==3.3.0
-MarkupSafe==2.1.1
+Mako @ file:///home/conda/feedstock_root/build_artifacts/mako_1668568582731/work
+MarkupSafe @ file:///D:/bld/markupsafe_1648737731599/work
 matplotlib==3.6.2
 mkl-fft==1.3.1
 mkl-random @ file:///C:/ci_310/mkl_random_1643050563308/work
@@ -28,35 +43,54 @@ murmurhash==1.0.9
 nltk==3.8.1
 numpy==1.24.1
 opencv-python==4.7.0.68
-packaging==22.0
+optuna @ file:///home/conda/feedstock_root/build_artifacts/optuna_1671501144463/work
+optuna-dashboard==0.8.1
+packaging @ file:///C:/b/abs_cfsup8ur87/croot/packaging_1671697442297/work
 pandas==1.5.2
 pathy==0.10.1
+pbr @ file:///home/conda/feedstock_root/build_artifacts/pbr_1673485161019/work
 Pillow==9.4.0
 preshed==3.0.8
+prettytable @ file:///home/conda/feedstock_root/build_artifacts/prettytable_1673206775283/work
+protobuf==3.20.1
 pycparser @ file:///tmp/build/80754af9/pycparser_1636541352034/work
 pydantic==1.10.4
 pyOpenSSL @ file:///opt/conda/conda-bld/pyopenssl_1643788558760/work
 pyparsing==3.0.9
+pyperclip @ file:///home/conda/feedstock_root/build_artifacts/pyperclip_1622337600177/work
+pyreadline3 @ file:///D:/bld/pyreadline3_1667417262192/work
 PySocks @ file:///C:/ci_310/pysocks_1642089375450/work
 python-dateutil==2.8.2
+pytorch-warmup==0.1.1
 pytz==2022.7
+PyYAML @ file:///C:/b/abs_d0g7dqt2xw/croot/pyyaml_1670514768165/work
 regex==2022.10.31
 requests @ file:///C:/ci/requests_1657735340829/work
+sacremoses==0.0.43
+scikit-learn==1.2.0
+scipy @ file:///C:/bld/scipy_1658811084897/work
 six @ file:///tmp/build/80754af9/six_1644875935023/work
 smart-open==6.3.0
 spacy==3.4.4
 spacy-legacy==3.0.11
 spacy-loggers==1.0.4
+SQLAlchemy @ file:///D:/bld/sqlalchemy_1649751718587/work
 srsly==2.4.5
+stevedore @ file:///home/conda/feedstock_root/build_artifacts/stevedore_1668150641523/work
 thinc==8.1.6
+threadpoolctl==3.1.0
+tokenizers @ file:///C:/ci/tokenizers_1651821358528/work
 torch==1.13.1
 torchaudio==0.13.1
 torchtext==0.14.1
 torchvision==0.14.1
-tqdm==4.64.1
+tqdm @ file:///C:/b/abs_0axbz66qik/croots/recipe/tqdm_1664392691071/work
+transformers==4.25.1
 typer==0.7.0
 typing_extensions @ file:///C:/b/abs_89eui86zuq/croot/typing_extensions_1669923792806/work
 urllib3 @ file:///C:/b/abs_21qa0j12xt/croot/urllib3_1670527000672/work
 wasabi==0.10.1
+wcwidth @ file:///home/conda/feedstock_root/build_artifacts/wcwidth_1673864653149/work
 win-inet-pton @ file:///C:/ci_310/win_inet_pton_1642658466512/work
 wincertstore==0.2
+zipp @ file:///C:/b/abs_b9jfdr908q/croot/zipp_1672387552360/work
