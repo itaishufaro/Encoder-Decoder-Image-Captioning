@@ -16,7 +16,7 @@ from torch.utils.data import DataLoader
 from transformers import BertTokenizer
 # import models
 
-spacy_eng = spacy.load("en_core_web_sm")  # load nlp model
+# spacy_eng = spacy.load("en_core_web_sm")  # load nlp model
 bert_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 
 # For prepararing the vocabulary
