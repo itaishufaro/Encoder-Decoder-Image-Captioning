@@ -1,4 +1,6 @@
 /flickr30k/
 /flickr8k/
 LSTM_optuna.db
-Transformerencoder_BERT.pth
+*.pt
+*.pth
+*.csv
