@@ -173,6 +173,7 @@ def show_img(img, caption):
     plt.imshow(img)
     plt.title(caption)
     plt.show()
+    plt.axis('off')
 
 '''
 if __name__ == "__main__":

@@ -1,6 +1,4 @@
 /flickr30k/
 /flickr8k/
-*.db
-*.pt
-*.pth
-*.csv
+/Paths/
+Transformerdecoder.pth
