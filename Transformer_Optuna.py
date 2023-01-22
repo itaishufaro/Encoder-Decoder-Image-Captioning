@@ -12,53 +12,63 @@ from transformers import BertTokenizer
 import optuna
 import train
 from train import train_epochs
-# import pytorch_warmup as warmup
+import pytorch_warmup as warmup
 
 
-def objective(trial, device, train_dataloader, valid_dataloader, vocab, bert_tokenizer, aug_list, num_epochs=5,
+def objective(trial, device, train_dataloader, valid_dataloader, vocab, bert_tokenizer, aug_list, num_epochs=8,
               embedding_size=768):
     # We optimize the number of layers, hidden units and dropout in each layer.
-    lr = trial.suggest_float("lr", 1e-5, 1e-2)
-    hidden_size = 256
-    weight_decay = 1e-8
-    gamma = trial.suggest_float("gamma", 0.1, 0.9)
-    num_layers = 2
-    # n_head = 2
+    lr = trial.suggest_float("lr", 1e-6, 1e-3)
+    hidden_size = 512
+    weight_decay = 0
+    # gamma = trial.suggest_float("gamma", 0.1, 0.999)
+    gamma = 0.99
+    num_layers = 1
+    n_head = 2
     beta1 = 0.9
-    beta2 = 0.99
+    beta2 = 0.999
     eps = 1e-8
-    # warmup_steps = trial.suggest_int("warmup_steps", 100, 1000)
-    optimizer = trial.suggest_categorical("optimizer", ['Adam', 'SGD'])
+    norm_first = trial.suggest_categorical("norm_first", [True, False])
     scheduler = trial.suggest_categorical("scheduler", ['ExponentialLR', 'CosineAnnealingLR', 'ReduceLROnPlateau'])
-    '''model = TransformerEncoderDecoder(hidden_size=hidden_size, num_layers=num_layers, vocab_size=len(vocab),
-                                      embed_size=embedding_size, n_head=n_head, norm_first=True)'''
-    model = LSTMDecoderEncoderBERT(embed_size=embedding_size, hidden_size=hidden_size, vocab_size=len(vocab),
-                                   num_layers=num_layers, max_seq_length=20)
+    optimizer = trial.suggest_categorical("optimizer", ['RAdam', 'SGD'])
+    warmup_steps = trial.suggest_int("warmup_steps", 100, 1000)
+    model = TransformerEncoderDecoder(hidden_size=hidden_size, num_layers=num_layers, vocab_size=len(vocab),
+                                      embed_size=embedding_size, n_head=n_head, norm_first=norm_first)
+    '''model = LSTMDecoderEncoderBERT(embed_size=embedding_size, hidden_size=hidden_size, vocab_size=len(vocab),
+                                   num_layers=num_layers, max_seq_length=20)'''
     model = model.to(device)
     pad_idx = bert_tokenizer.pad_token_id
     criterion = nn.CrossEntropyLoss(ignore_index=pad_idx).to(device)
-    if optimizer == 'Adam':
-        optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay, betas=(beta1, beta2), eps=eps)
+    if optimizer == 'RAdam':
+        optimizer = torch.optim.RAdam(model.parameters(), lr=lr, weight_decay=weight_decay)
+        warmup_scheduler = warmup.RAdamWarmup(optimizer)
     else:
         optimizer = torch.optim.SGD(model.parameters(), lr=lr, weight_decay=weight_decay)
-    # warmup_scheduler = warmup.LinearWarmup(optimizer, warmup_period=warmup_steps)
+        warmup_scheduler = warmup.LinearWarmup(optimizer, warmup_period=warmup_steps)
     if scheduler == 'ExponentialLR':
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=gamma)
     elif scheduler == 'CosineAnnealingLR':
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10)
+    elif scheduler == 'ReduceLROnPlateau':
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer)
     else:
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=gamma, patience=1)
-    _, _, tmp_loss, tmp_score = train_epochs(num_epochs=2, model=model, dataloader=train_dataloader,
+        scheduler = None
+    _, _, temp_loss, temp_valid = train_epochs(num_epochs=3, model=model, dataloader=train_dataloader,
                                                  optimizer=optimizer, criterion=criterion, device=device,
                                                  validloader=valid_dataloader, vocab=vocab, augmentations=aug_list,
-                                                 warmup_scheduler=None, model_class='LSTM')
-    if tmp_loss > 10:
-        return tmp_loss, tmp_score
-    _, _, final_loss, final_score = train_epochs(num_epochs=num_epochs-2, model=model, dataloader=train_dataloader,
+                                                 warmup_scheduler=warmup_scheduler)
+    if temp_loss > 10.0:
+        return temp_loss, temp_valid
+
+    _, _, final_loss, final_valid = train_epochs(num_epochs=num_epochs-3, model=model, dataloader=train_dataloader,
                                                  optimizer=optimizer, criterion=criterion, device=device,
                                                  validloader=valid_dataloader, vocab=vocab, augmentations=aug_list,
-                                                 warmup_scheduler=None, model_class='LSTM')
-    return final_loss, final_score
+                                                 warmup_scheduler=warmup_scheduler)
+    print('-' * 10)
+    print(f"Final loss: {final_loss}, Final Validation: {final_valid}")
+    print('-' * 10)
+    torch.cuda.empty_cache()
+    return final_loss, final_valid
 
 
 
@@ -88,13 +98,13 @@ if __name__ == '__main__':
     shuffle = True
     pad_idx = dataset.vocab["[PAD]"]
     train_dataloader = DataLoader(dataset,
-                                   batch_size=128,
+                                   batch_size=256,
                                    pin_memory=pin_memory,
                                    num_workers=num_workers,
                                    shuffle=shuffle,
                                   collate_fn=data.CapCollat(pad_idx=pad_idx))
     valid_dataloader = DataLoader(dataset,
-                                   batch_size=128,
+                                   batch_size=256,
                                    pin_memory=pin_memory,
                                    num_workers=num_workers,
                                    shuffle=shuffle,
@@ -103,15 +113,15 @@ if __name__ == '__main__':
     # Create the augmentations
     aug_list = AugmentationSequential(
         K.RandomHorizontalFlip(p=0.5),
-        K.RandomAffine(5, [0.05, 0.05], [0.95, 1.05], p=.5),
-        K.RandomPerspective(0.1, p=.5),
+        K.RandomAffine(5, [0.05, 0.05], [0.95, 1.05], p=.1),
+        K.RandomPerspective(0.1, p=.1),
         same_on_batch=False)
     # Create the device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # Create the study
-    study = optuna.create_study(study_name="LSTM_optuna_FULL",
-        storage='sqlite:///LSTM_optuna_FULL.db',
+    study = optuna.create_study(study_name="Transformer_optuna_INIT",
+        storage='sqlite:///Transformer_optuna_INIT.db',
         load_if_exists=True,
-        directions=["minimize", "minimize"])
+        directions=["minimize", "maximize"])
     study.optimize(lambda trial: objective(trial, device, train_dataloader, valid_dataloader, vocabulary,
-                                           bert_tokenizer, aug_list), n_trials=10)
+                                           bert_tokenizer, aug_list), n_trials=30)
