@@ -8,7 +8,7 @@ Video:
 (in hebrew).
 
 
-- [Encoder Decoder Image Captioning](#Image_Captioning_With_Encoder-Decoder_Networks)
+- [Encoder Decoder Image Captioning](Image Captioning With Encoder-Decoder Networks)
   * [Background](#Background)
   * [Prerequisites](#prerequisites)
   * [Files in the repository](#files-in-the-repository)
