@@ -1,16 +1,14 @@
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 import torchvision.transforms as T
 import data
-from data import FlickrDataset, train_valid_test_split
+from data import FlickrDataset
 import torch
 from torch import nn
-from models import LSTMDecoderEncoderBERT, TransformerEncoderDecoder
-import kornia
+from models import TransformerEncoderDecoder
 from kornia import augmentation as K
 from kornia.augmentation import AugmentationSequential
 from transformers import BertTokenizer
 import optuna
-import train
 from train import train_epochs
 import pytorch_warmup as warmup
 
@@ -19,23 +17,16 @@ def objective(trial, device, train_dataloader, valid_dataloader, vocab, bert_tok
               embedding_size=768):
     # We optimize the number of layers, hidden units and dropout in each layer.
     lr = trial.suggest_float("lr", 1e-6, 1e-3)
-    hidden_size = 512
     weight_decay = 0
-    # gamma = trial.suggest_float("gamma", 0.1, 0.999)
     gamma = 0.99
     num_layers = 1
     n_head = 2
-    beta1 = 0.9
-    beta2 = 0.999
-    eps = 1e-8
     norm_first = trial.suggest_categorical("norm_first", [True, False])
     scheduler = trial.suggest_categorical("scheduler", ['ExponentialLR', 'CosineAnnealingLR', 'ReduceLROnPlateau'])
     optimizer = trial.suggest_categorical("optimizer", ['RAdam', 'SGD'])
     warmup_steps = trial.suggest_int("warmup_steps", 100, 1000)
-    model = TransformerEncoderDecoder(hidden_size=hidden_size, num_layers=num_layers, vocab_size=len(vocab),
+    model = TransformerEncoderDecoder(num_layers=num_layers, vocab_size=len(vocab),
                                       embed_size=embedding_size, n_head=n_head, norm_first=norm_first)
-    '''model = LSTMDecoderEncoderBERT(embed_size=embedding_size, hidden_size=hidden_size, vocab_size=len(vocab),
-                                   num_layers=num_layers, max_seq_length=20)'''
     model = model.to(device)
     pad_idx = bert_tokenizer.pad_token_id
     criterion = nn.CrossEntropyLoss(ignore_index=pad_idx).to(device)
@@ -55,15 +46,13 @@ def objective(trial, device, train_dataloader, valid_dataloader, vocab, bert_tok
         scheduler = None
     _, _, temp_loss, temp_valid = train_epochs(num_epochs=3, model=model, dataloader=train_dataloader,
                                                  optimizer=optimizer, criterion=criterion, device=device,
-                                                 validloader=valid_dataloader, vocab=vocab, augmentations=aug_list,
-                                                 warmup_scheduler=warmup_scheduler)
+                                                 validloader=valid_dataloader, vocab=vocab, augmentations=aug_list)
     if temp_loss > 10.0:
         return temp_loss, temp_valid
 
     _, _, final_loss, final_valid = train_epochs(num_epochs=num_epochs-3, model=model, dataloader=train_dataloader,
                                                  optimizer=optimizer, criterion=criterion, device=device,
-                                                 validloader=valid_dataloader, vocab=vocab, augmentations=aug_list,
-                                                 warmup_scheduler=warmup_scheduler)
+                                                 validloader=valid_dataloader, vocab=vocab, augmentations=aug_list)
     print('-' * 10)
     print(f"Final loss: {final_loss}, Final Validation: {final_valid}")
     print('-' * 10)
@@ -83,11 +72,11 @@ if __name__ == '__main__':
         T.Normalize(mean=[0.485, 0.456, 0.406],
                     std=[0.229, 0.224, 0.225])
     ])
-    # root_folder = "./flickr8k/images"
-    # csv_file = "./flickr8k/captions.txt"
     root_folder = "./flickr8k/Images"
     csv_file = "./flickr8k/captions.txt"
     dataset = FlickrDataset(root_folder, csv_file, transforms)
+    # set the seed for reproducibility
+    torch.manual_seed(123)
     traindata, validdata, testdata = torch.utils.data.random_split(dataset, [0.8, 0.1, 0.1])
     # Important variables for later on
     vocabulary = dataset.vocab
@@ -109,7 +98,6 @@ if __name__ == '__main__':
                                    num_workers=num_workers,
                                    shuffle=shuffle,
                                   collate_fn=data.CapCollat(pad_idx=pad_idx))
-    # test_dataloader = DataLoader(testdata, batch_size=32, shuffle=True, num_workers=1)
     # Create the augmentations
     aug_list = AugmentationSequential(
         K.RandomHorizontalFlip(p=0.5),

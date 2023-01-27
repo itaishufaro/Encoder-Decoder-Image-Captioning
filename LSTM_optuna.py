@@ -1,18 +1,15 @@
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 import torchvision.transforms as T
 import data
-from data import FlickrDataset, train_valid_test_split
+from data import FlickrDataset
 import torch
 from torch import nn
-from models import LSTMDecoderEncoderBERT, TransformerEncoderDecoder
-import kornia
+from models import LSTMDecoderEncoderBERT
 from kornia import augmentation as K
 from kornia.augmentation import AugmentationSequential
 from transformers import BertTokenizer
 import optuna
-import train
 from train import train_epochs
-# import pytorch_warmup as warmup
 
 
 def objective(trial, device, train_dataloader, valid_dataloader, vocab, bert_tokenizer, aug_list, num_epochs=5,
@@ -73,11 +70,11 @@ if __name__ == '__main__':
         T.Normalize(mean=[0.485, 0.456, 0.406],
                     std=[0.229, 0.224, 0.225])
     ])
-    # root_folder = "./flickr8k/images"
-    # csv_file = "./flickr8k/captions.txt"
     root_folder = "./flickr8k/Images"
     csv_file = "./flickr8k/captions.txt"
     dataset = FlickrDataset(root_folder, csv_file, transforms)
+    # Set manual seed for the same partition of the dataset
+    torch.manual_seed(123)
     traindata, validdata, testdata = torch.utils.data.random_split(dataset, [0.8, 0.1, 0.1])
     # Important variables for later on
     vocabulary = dataset.vocab
@@ -99,7 +96,6 @@ if __name__ == '__main__':
                                    num_workers=num_workers,
                                    shuffle=shuffle,
                                   collate_fn=data.CapCollat(pad_idx=pad_idx))
-    # test_dataloader = DataLoader(testdata, batch_size=32, shuffle=True, num_workers=1)
     # Create the augmentations
     aug_list = AugmentationSequential(
         K.RandomHorizontalFlip(p=0.5),
