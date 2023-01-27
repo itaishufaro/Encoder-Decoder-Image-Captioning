@@ -144,7 +144,7 @@ def train_valid_test_split(df, train_percent=.8, valid_percent=.1, seed=0):
 
 def convert_to_imshow_format(image):
     image = image.numpy()
-    image = image.transpose(1,2,0)
+    image = image.transpose(1, 2, 0)
     image = (image - np.min(np.min(image, axis=0),axis=0))
     image = image / np.max(np.max(image,axis=0),axis=0)
     # We preform normalization on the image in order to be in range [0,1]
