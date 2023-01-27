@@ -235,7 +235,7 @@ if __name__ == '__main__':
     eps = 1e-8
     norm_first = True
     torch.manual_seed(123)
-    model = TransformerEncoderDecoder(hidden_size=hidden_size, num_layers=num_layers, vocab_size=len(vocabulary),
+    model = TransformerEncoderDecoder(num_layers=num_layers, vocab_size=len(vocabulary),
                                       embed_size=768, n_head=n_head, norm_first=norm_first)
     model = model.to(device)
 
