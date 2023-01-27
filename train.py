@@ -1,17 +1,15 @@
 import pandas as pd
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 import torchvision.transforms as T
 import data
-from data import FlickrDataset, train_valid_test_split
+from data import FlickrDataset
 import torch
 from torch import nn
 from models import LSTMDecoderEncoderBERT, TransformerEncoderDecoder
-import kornia
 from kornia import augmentation as K
 from kornia.augmentation import AugmentationSequential
 from transformers import BertTokenizer
 import pytorch_warmup as warmup
-import numpy as np
 from nltk.translate.bleu_score import corpus_bleu, SmoothingFunction
 
 bert_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')

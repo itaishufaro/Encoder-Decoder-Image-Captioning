@@ -1,16 +1,6 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from torch.utils.data import DataLoader, Dataset
-from torchvision.datasets import ImageFolder
-from torchvision import models, transforms
-import torchtext
-import torchvision.transforms as T
-import torchvision
-import data
-from data import FlickrDataset
-import math
-import numpy as np
+from torchvision import models
 from transformers import BertModel
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
