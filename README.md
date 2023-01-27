@@ -1,4 +1,4 @@
-# Encoder-Decoder-Image-Captioning
+# Image Captioning With Encoder-Decoder Networks
 Project for the course Deep Learning 046211 (Technion)
 Winter 2023
 
@@ -8,7 +8,7 @@ Video:
 (in hebrew).
 
 
-- [Encoder Decoder Image Captioning](#Encoder-Decoder-Image-Captioning)
+- [Encoder Decoder Image Captioning](#Image Captioning With Encoder-Decoder Networks)
   * [Background](#Background)
   * [Prerequisites](#prerequisites)
   * [Files in the repository](#files-in-the-repository)
@@ -16,8 +16,10 @@ Video:
   * [References](#references)
 
 ## Background
-Fill from report.
-
+Image captioning is the task of generating short sentences that describe the content of an image. 
+The goal of this project is to implement an encoder-decoder network for image captioning. 
+The encoder is a pre-trained CNN, and for the decoder we used both LSTM and Transformer networks.
+The network is trained on the [Flickr8k](https://www.kaggle.com/adityajn105/flickr8k/activity) dataset.
 
 ## Prerequisites
 Full lists of requirements are in the requirements.txt file.
@@ -36,13 +38,11 @@ To install the requirements run:
 |Example_Images | Folder with example images for the README.md file.|
 |'LSTM_optuna.py' | Optuna hyperparameter tuning script for the LSTM model.|
 |'Transformer_optuna.py' | Optuna hyperparameter tuning script for the Transformer model.|
-|'Show_images.py' | Script for showing the images in the dataset, and results for Transformer model.|
 |'Transformer_full.csv'| Results for the Transformer model during final training.|
 
 ## Displaying Results
-In order to display example images for the Transformer / LSTM model, run the following command:
-`python Show_images_and_results.py --model_class`
-where model_class is either 'Transformer' or 'LSTM'.
+The full results for the Transformer model training are in the 'Transformer_full.csv' file.
+In order to replicate the results 
 ## Training
 In order to train the model one should clone the repository, select the model class (Transformer / LSTM)
 and select the required hyperparameters in the script (the optimal hyperparameters we used are already in the script).
