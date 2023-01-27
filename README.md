@@ -1,6 +1,5 @@
-# Image Captioning With Encoder-Decoder Networks
-Project for the course Deep Learning 046211 (Technion)
-Winter 2023.
+# <a name="header"></a>Image Captioning With Encoder-Decoder Architecture
+### Project for the course Deep Learning 046211 (Technion) Winter 2022-2023.
 
 Video:
 
@@ -8,11 +7,12 @@ Video:
 (in hebrew).
 
 
-- [Encoder Decoder Image Captioning](Image Captioning With Encoder-Decoder Networks)
-  * [Background](#Background)
+- [Encoder Decoder Image Captioning](#header)
+  * [Background](#background)
   * [Prerequisites](#prerequisites)
   * [Files in the repository](#files-in-the-repository)
   * [Results](#results)
+  * [Training](#training)
   * [Examples](#examples)
   * [References](#references)
 
@@ -41,9 +41,10 @@ To install the requirements run:
 |'Transformer_optuna.py' | Optuna hyperparameter tuning script for the Transformer model.|
 |'Transformer_full.csv'| Results for the Transformer model during final training.|
 
-## Displaying Results
+## Results
 The full results for the Transformer model training are in the 'Transformer_full.csv' file.
-In order to replicate the results 
+In order to replicate the results run `train.py` without changing the hyperparameters, seed or model class.
+
 ## Training
 In order to train the model one should clone the repository, select the model class (Transformer / LSTM)
 and select the required hyperparameters in the script (the optimal hyperparameters we used are already in the script).
