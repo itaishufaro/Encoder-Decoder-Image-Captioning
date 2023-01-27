@@ -47,9 +47,12 @@ In order to replicate the results
 In order to train the model one should clone the repository, select the model class (Transformer / LSTM)
 and select the required hyperparameters in the script (the optimal hyperparameters we used are already in the script).
 ## Examples
-![Example 1](Example Images/image0.png)
-![Example 5](Example Images/image5.png)
-![Example 7](Example Images/image7.png)
-![Example 8](Example Images/image8.png)
+![Example 1](./Example Images/image0.png)
+
+![Example 5](./Example Images/image5.png)
+
+![Example 7](./Example Images/image7.png)
+
+![Example 8](./Example Images/image8.png)
 ## References:
 * https://www.kaggle.com/code/itaishufaro/flickr-30k-data-loader-preparation-pytorch/edit (Based data loader on this script).
