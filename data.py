@@ -1,29 +1,19 @@
-import json
 import numpy as np
 import pandas as pd
-import cv2
-import torchvision.transforms
 from matplotlib import pyplot as plt
 import torch
-from torch import nn
 from torch.nn.utils.rnn import pad_sequence
-import torchvision.transforms as T
 from PIL import Image
-import spacy
 import os
 from torch.utils.data import Dataset
-from torch.utils.data import DataLoader
 from transformers import BertTokenizer
-# import models
 
-# spacy_eng = spacy.load("en_core_web_sm")  # load nlp model
 bert_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 
 # For prepararing the vocabulary
 class Vocabulary:
     def __init__(self, freq_threshold):
         self.freq_threshold = freq_threshold
-        # self.itos = {0: "<PAD>", 1: "<SOS>", 2: "<EOS>", 3: "<UNK>"}  # for spacy
         self.itos = {0: "[PAD]", 1: "[CLS]", 2: "[SEP]", 3: "[UNK]"}
         self.stoi = {v: k for k, v in self.itos.items()}
         self.bert_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
@@ -33,7 +23,6 @@ class Vocabulary:
         return len(self.itos)
 
     def tokenize(self, text):
-        # return [token.text.lower() for token in spacy_eng.tokenizer(str(text))]
         return self.bert_tokenizer.tokenize(text)
 
     def build_vocab(self, sent_list):
@@ -65,8 +54,6 @@ class Vocabulary:
         """
         tmp = seq.squeeze()
         tmp_list = [self.itos[i.item()] for i in tmp]
-        # SOSind = tmp_list.index("<SOS>")  # for spacy
-        # EOSind = tmp_list.index("<EOS>")  # for spacy
         SOSind = tmp_list.index('[CLS]')  # for bert
         EOSind = tmp_list.index('[SEP]')  # for bert
         return ' '.join(tmp_list[SOSind+1:EOSind])
@@ -102,7 +89,6 @@ class FlickrDataset(Dataset):
         self.img_pts = self.df['image']
         self.caps = self.df['caption']
         self.vocab = bert_tokenizer.vocab
-        # self.vocab.build_vocab(self.caps.tolist())
 
     def __len__(self):
         return len(self.df)
@@ -119,12 +105,9 @@ class FlickrDataset(Dataset):
             img = self.transforms(img)
 
         numberized_caps = []
-        # numberized_caps += [self.vocab.stoi["<SOS>"]]  # for spacy
         numberized_caps.append(self.vocab["[CLS]"])  # for bert
         numberized_caps += (bert_tokenizer.convert_tokens_to_ids(bert_tokenizer.tokenize(captions)))
-        # numberized_caps += [self.vocab.stoi["<EOS>"]] # for spacy
         numberized_caps.append(self.vocab["[SEP]"])  # for bert
-        # numberized_caps = bert_tokenizer.build_inputs_with_special_tokens(captions)
         return img, torch.tensor(numberized_caps)
 
 
@@ -174,54 +157,3 @@ def show_img(img, caption):
     plt.imshow(img)
     plt.title(caption)
     plt.show()
-
-'''
-if __name__ == "__main__":
-    batch_size = 1
-    root_folder = "./flickr30k/images"
-    csv_file = "./flickr30k/results.csv"
-
-    # Images normalized according to resnet 50 expectations (optional)
-    transforms = T.Compose([
-        T.Resize((128, 128)),
-        T.ToTensor(),
-        T.Normalize(mean=[0.485, 0.456, 0.406],
-                    std=[0.229, 0.224, 0.225])
-    ])
-    num_workers = 2
-    batch_first = True
-    pin_memory = True
-    shuffle = True
-    dataset = FlickrDataset(root_folder, csv_file, transforms)
-    pad_idx = dataset.vocab.stoi["<PAD>"]
-    # Data Loader
-    dataloader = DataLoader(dataset,
-                            batch_size=batch_size,
-                            pin_memory=pin_memory,
-                            num_workers=num_workers,
-                            shuffle=shuffle,
-                            collate_fn=CapCollat(pad_seq=pad_idx, batch_first=batch_first))
-    dataitr = iter(dataloader)
-    batch = next(dataitr)
-    images, captions = batch
-    print(captions.shape)
-    print(captions[0])
-    # print(dataset.vocab.itos[token] for token in captions[0].tolist())
-    caption_label = [dataset.vocab.itos[token] for token in captions[0].tolist()]
-    eos_index = caption_label.index('<EOS>')
-    caption_label = caption_label[1:eos_index]
-    caption_label = ' '.join(caption_label)
-    print(caption_label)
-    embedding_size = 256
-    hidden_size = 256
-    vocab_size = len(dataset.vocab)
-    encoder_out = 32768
-    encodedecode = models.EncoderDecoder(encoder_out, embedding_size, hidden_size, vocab_size)
-    new_word = encodedecode(images, captions)
-    print(new_word.size())
-    caption_label = [dataset.vocab.itos[token] for token in new_word.tolist()]
-    eos_index = caption_label.index('<EOS>')
-    caption_label = caption_label[1:eos_index]
-    caption_label = ' '.join(caption_label)
-    print(caption_label)
-'''
