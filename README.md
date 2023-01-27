@@ -1,6 +1,6 @@
 # Image Captioning With Encoder-Decoder Networks
 Project for the course Deep Learning 046211 (Technion)
-Winter 2023
+Winter 2023.
 
 Video:
 
@@ -8,7 +8,7 @@ Video:
 (in hebrew).
 
 
-- [Encoder Decoder Image Captioning](#Image Captioning With Encoder-Decoder Networks)
+- [Encoder Decoder Image Captioning](#Image_Captioning_With_Encoder-Decoder_Networks)
   * [Background](#Background)
   * [Prerequisites](#prerequisites)
   * [Files in the repository](#files-in-the-repository)
