@@ -49,7 +49,7 @@ packaging @ file:///C:/b/abs_cfsup8ur87/croot/packaging_1671697442297/work
 pandas==1.5.2
 pathy==0.10.1
 pbr @ file:///home/conda/feedstock_root/build_artifacts/pbr_1673485161019/work
-Pillow==9.4.0
+Pillow==10.0.1
 preshed==3.0.8
 prettytable @ file:///home/conda/feedstock_root/build_artifacts/prettytable_1673206775283/work
 protobuf==3.20.1
